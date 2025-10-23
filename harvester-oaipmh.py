@@ -10,31 +10,42 @@ import json
 from oaipmh_scythe import Scythe
 import requests
 import traceback
+from typing import Dict, Optional
 
 NS = {"oai": "http://www.openarchives.org/OAI/2.0/"}
 API_BASE_URL = ""
 
-def load_repo_config(harvest_run_id: str):
+def load_repo_config(harvest_url: str, timeout: int = 30) -> Dict:
     """
     Fetch repository configuration from API.
 
-    :param harvest_run_id: unique ID for that harvest run
-    :return: json file with config data
+    :param harvest_url: endpoint for harvesting
+    :return: json file with config data for the matching repository
     """
-    url = f"{API_BASE_URL}/config/{harvest_run_id}"
+    url = f"{API_BASE_URL}/config"
     try:
-        response = requests.get(url, timeout=30)
+        response = requests.get(url, timeout=timeout)
         response.raise_for_status()
-        config = response.json()
-        return config
-    except requests.exceptions.RequestException as e:
-        print(f"Failed to fetch repository configuration from API: {e}")
-        raise
+    except requests.RequestException as e:
+        print(f"Failed to fetch repository configuration list from API: {e}")
+        sys.exit(1)
 
+    try:
+        payload = response.json()
+    except ValueError as e:
+        print(f"Invalid JSON returned from {url}: {e}")
+        sys.exit(1)
 
-# save new config data (i.e. update last harvest date) ??
+    endpoints = payload.get("endpoints_configs")
+    config = next((c for c in endpoints if c["harvest_url"] == harvest_url), None)
 
-# clean up OAI identifier for use in file names ??
+    if config is None:
+        print(f"No config found for harvest_url '{harvest_url}'.")
+        sys.exit(2)
+
+    print(f"Loaded config for repository '{config.get('code')}' ({harvest_url}).")
+    return config
+
 
 def send_harvest_event(
     api_base_url,
@@ -112,26 +123,20 @@ def fetch_additional_oai(record_id, base_url, metadata_prefix):
 
 def main():
     parser = argparse.ArgumentParser(description="OAI-PMH Harvester (with the possibility of harvesting additional metadata)")
-    parser.add_argument("harvest_run_id", help="Identifier of this harvest run")
+    parser.add_argument("harvest_url", help="Repository OAI-PMH base URL")
     args = parser.parse_args()
 
-    harvest_run_id = args.harvest_run_id
-    config = load_repo_config(harvest_run_id)
+    harvest_url = args.harvest_url
+    config = load_repo_config(harvest_url)
 
     # this is an OAI-PMH harvester, exit if it's triggered by a repo with a different primary harvesting protocol
     if config.get("protocol") != "OAI-PMH":
-        msg = (
-            f"Repository '{config["name"]}' skipped: protocol '{config.get("protocol")}' is not supported by this harvester."
-        )
-        print(msg)
-        sys.exit(0)
+        print(f"Repository '{config["name"]}' skipped: protocol '{config.get("protocol")}' is not supported by this harvester.")
+        sys.exit(3)
 
-    harvest_url = config["harvest_url"]
-    suffix = config["suffix"]
     metadata_prefix = config["harvest_params"].get("metadata_prefix", "oai_dc")
-    last_harvest = config.get("last_harvest_date")
     set = config["harvest_params"].get("set")
-    additional = config.get("additional_metadata")
+    additional = config.get("additional_metadata_params")
     additional_protocol = additional.get("protocol") if additional else None
 
 
