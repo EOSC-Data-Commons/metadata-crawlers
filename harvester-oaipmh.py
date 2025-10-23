@@ -67,38 +67,21 @@ def start_harvest_run(harvest_url: str, timeout: int = 30) -> Optional[dict]:
         return None
 
 
-def send_harvest_event(
-    api_base_url,
-    repo_code,
-    harvest_url,
-    record_identifier,
-    datestamp,
-    is_deleted,
-    raw_metadata,
-    additional_metadata
-):
+def send_harvest_event(api_base_url, event_payload):
     """
-    Create an API payload and send it.
+    Send event_payload to API.
 
+    :param api_base_url: API endpoint
+    :param event_payload: payload for harvest_event route
     :return logical: True if the payload has been sent to API successfully 
     """
     url = f"{api_base_url}/harvest_event"
-    payload = {
-        "record_identifier": record_identifier,
-        "datestamp": datestamp,
-        "is_deleted": is_deleted,
-        "raw_metadata": raw_metadata,
-        "additional_metadata": additional_metadata,
-        "harvest_url": harvest_url,
-        "repo_code": repo_code
-    }
-
     try:
-        response = requests.post(url, json=payload, timeout=60)
+        response = requests.post(url, json=event_payload, timeout=60)
         response.raise_for_status()
         return True
     except requests.exceptions.RequestException as e:
-        print(f"Failed to send record {record_identifier} to API: {e}")
+        print(f"Failed to send record {event_payload["record_identifier"]} to API: {e}")
         return False
 
 
@@ -122,7 +105,7 @@ def fetch_dataverse_json(doi, base_url, exporter):
     except Exception as e:
         print(f"Error fetching Dataverse JSON for {doi}: {e}")
 
-# additional metadata: fetch and save additional schema
+
 def fetch_additional_oai(record_id, base_url, metadata_prefix):
     """
     Fetch additional metadata: OAI-PMH
@@ -154,18 +137,23 @@ def main():
         print(f"Repository '{config["name"]}' skipped: protocol '{config.get("protocol")}' is not supported by this harvester.")
         sys.exit(3)
 
+    # extract harvest parameters from the config
     metadata_prefix = config["harvest_params"].get("metadata_prefix", "oai_dc")
     set = config["harvest_params"].get("set")
+    code = config.get("code")
     additional = config.get("additional_metadata_params")
     additional_protocol = additional.get("protocol") if additional else None
 
+    # start new harvest run
     run_info = start_harvest_run(harvest_url)
     if run_info is None:
         sys.exit(1)
 
+    # extract harvest run info from the response
     harvest_run_id = run_info.get("harvest_run_id")
     last_harvest_date = run_info.get("last_harvest_date")
 
+    # harvesting
     try:
         with Scythe(harvest_url) as client:
             if last_harvest_date:
@@ -209,16 +197,19 @@ def main():
                         metadata_prefix=additional["method"]
                     )
 
-                if send_harvest_event(
-                    api_base_url=API_BASE_URL,
-                    repo_code=suffix,
-                    harvest_url=harvest_url,
-                    record_identifier=identifier,
-                    datestamp=datestamp,
-                    is_deleted=is_deleted,
-                    raw_metadata=raw_metadata,
-                    additional_metadata=additional_metadata,
-                ):
+                # metadata and record info to be sent to the warehouse
+                event_payload = {
+                    "harvest_run_id": harvest_run_id,
+                    "record_identifier": identifier,
+                    "datestamp": datestamp,
+                    "is_deleted": is_deleted,
+                    "raw_metadata": raw_metadata,
+                    "additional_metadata": additional_metadata,
+                    "harvest_url": harvest_url,
+                    "repo_code": code
+                }
+                
+                if send_harvest_event(API_BASE_URL, event_payload):
                     harvest_events += 1
 
             if record_count > 0:
