@@ -47,6 +47,26 @@ def load_repo_config(harvest_url: str, timeout: int = 30) -> Dict:
     return config
 
 
+def start_harvest_run(harvest_url: str, timeout: int = 30) -> Optional[dict]:
+    """
+    POST /harvest_run to create a new harvest run. 
+    
+    :param harvest_url: endpoint for harvesting
+    :return: JSON response (dict) containing at least 'harvest_run_id' and optionally 'last_harvest_date'; return None on error.
+    """
+    url = f"{API_BASE_URL}/harvest_run"
+    payload = {"harvest_url": harvest_url}
+    try:
+        response = requests.post(url, json=payload, timeout=timeout)
+        response.raise_for_status()
+        run_info = response.json()
+        print(f"Started harvest run id={run_info.get('harvest_run_id')}.")
+        return run_info
+    except requests.RequestException as e:
+        print(f"Failed to start harvest run for {harvest_url}: {e}")
+        return None
+
+
 def send_harvest_event(
     api_base_url,
     repo_code,
@@ -139,13 +159,19 @@ def main():
     additional = config.get("additional_metadata_params")
     additional_protocol = additional.get("protocol") if additional else None
 
+    run_info = start_harvest_run(harvest_url)
+    if run_info is None:
+        sys.exit(1)
+
+    harvest_run_id = run_info.get("harvest_run_id")
+    last_harvest_date = run_info.get("last_harvest_date")
 
     try:
         with Scythe(harvest_url) as client:
-            if last_harvest:
-                print(f"Incremental harvest since {last_harvest}")
+            if last_harvest_date:
+                print(f"Incremental harvest since {last_harvest_date}")
                 records = client.list_records(
-                    from_=last_harvest,
+                    from_=last_harvest_date,
                     metadata_prefix=metadata_prefix,
                     set_=set
                 )
