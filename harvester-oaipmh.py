@@ -1,7 +1,6 @@
 # script for harvesting metadata based on oaipmh-scythe client
-# run in terminal with the path to config file as argument: python harvester_scheduled.py {repos_config/repo.json}
+# runs with repository endpoint as argument: python harvester-oaipmh.py {repository_url}
 
-import os
 import sys
 import argparse
 from datetime import datetime, timezone
