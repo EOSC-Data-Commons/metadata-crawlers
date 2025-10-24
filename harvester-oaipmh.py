@@ -154,6 +154,7 @@ def main():
     last_harvest_date = run_info.get("last_harvest_date")
 
     # harvesting
+    harvest_success = False
     try:
         with Scythe(harvest_url) as client:
             if last_harvest_date:
@@ -173,54 +174,62 @@ def main():
 
             record_count = 0
             harvest_events = 0
+            failed_events = 0
 
             for record in records:
                 record_count += 1
-                identifier = record.header.identifier
-                datestamp = record.header.datestamp
-                is_deleted = getattr(record.header, "status", None) == "deleted"
-                raw_metadata = ET.tostring(record.xml, pretty_print=True, encoding="unicode")
 
-                additional_metadata = None
+                try:
+                    identifier = record.header.identifier
+                    datestamp = record.header.datestamp
+                    is_deleted = getattr(record.header, "status", None) == "deleted"
+                    raw_metadata = ET.tostring(record.xml, pretty_print=True, encoding="unicode")
 
-                if additional_protocol == "dataverse_api":
-                    additional_metadata = fetch_dataverse_json(
-                        doi=identifier,
-                        base_url=additional["endpoint"],
-                        exporter=additional["method"]
-                    )
+                    additional_metadata = None
 
-                elif additional_protocol == "OAI-PMH":
-                    additional_metadata = fetch_additional_oai(
-                        record_id=identifier,
-                        base_url=additional["endpoint"],
-                        metadata_prefix=additional["method"]
-                    )
+                    if not is_deleted:
+                        if additional_protocol == "dataverse_api":
+                            additional_metadata = fetch_dataverse_json(
+                                doi=identifier,
+                                base_url=additional["endpoint"],
+                                exporter=additional["method"]
+                            )
 
-                # metadata and record info to be sent to the warehouse
-                event_payload = {
-                    "harvest_run_id": harvest_run_id,
-                    "record_identifier": identifier,
-                    "datestamp": datestamp,
-                    "is_deleted": is_deleted,
-                    "raw_metadata": raw_metadata,
-                    "additional_metadata": additional_metadata,
-                    "harvest_url": harvest_url,
-                    "repo_code": code
-                }
-                
-                if send_harvest_event(API_BASE_URL, event_payload):
-                    harvest_events += 1
+                        elif additional_protocol == "OAI-PMH":
+                            additional_metadata = fetch_additional_oai(
+                                record_id=identifier,
+                                base_url=additional["endpoint"],
+                                metadata_prefix=additional["method"]
+                            )
 
-            if record_count > 0:
-                today = datetime.today().strftime("%Y-%m-%d")
-                print(f"Harvested {record_count} records. Successfully sent {harvest_events} of them to the warehouse.")
-            else:
-                print("No new records harvested.")
+                    # metadata and record info to be sent to the warehouse
+                    event_payload = {
+                        "harvest_run_id": harvest_run_id,
+                        "record_identifier": identifier,
+                        "datestamp": datestamp,
+                        "is_deleted": is_deleted,
+                        "raw_metadata": raw_metadata,
+                        "additional_metadata": additional_metadata,
+                        "harvest_url": harvest_url,
+                        "repo_code": code
+                    }
+                    
+                    if send_harvest_event(API_BASE_URL, event_payload):
+                        harvest_events += 1
+                    else:
+                        failed_events += 1
+
+                except Exception as e:
+                    failed_events += 1
+                    print(f"Record {record_count} failed: {e}")
+
+        harvest_success = True
 
     except Exception as e:
         print(f"An error occurred during harvesting: {e}")
         traceback.print_exc()
+
+    
 
 if __name__ == "__main__":
     main()
