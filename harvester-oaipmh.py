@@ -4,23 +4,25 @@
 import os
 import sys
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 from lxml import etree as ET
 import json
 from oaipmh_scythe import Scythe
 import requests
 import traceback
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 
 NS = {"oai": "http://www.openarchives.org/OAI/2.0/"}
 API_BASE_URL = ""
 
-def load_repo_config(harvest_url: str, timeout: int = 30) -> Dict:
+def load_repo_config(harvest_url: str, timeout: int = 30) -> Dict[str, Any]:
     """
     Fetch repository configuration from API.
 
     :param harvest_url: endpoint for harvesting
+    :param timeout: request timeout in seconds
     :return: json file with config data for the matching repository
+    :raises SystemExit: If configuration cannot be fetched or no matching repository found
     """
     url = f"{API_BASE_URL}/config"
     try:
@@ -47,12 +49,13 @@ def load_repo_config(harvest_url: str, timeout: int = 30) -> Dict:
     return config
 
 
-def start_harvest_run(harvest_url: str, timeout: int = 30) -> Optional[dict]:
+def start_harvest_run(harvest_url: str, timeout: int = 30) -> Optional[Dict[str, Any]]:
     """
     POST /harvest_run to create a new harvest run. 
     
     :param harvest_url: endpoint for harvesting
-    :return: JSON response (dict) containing at least 'harvest_run_id' and optionally 'last_harvest_date'; return None on error.
+    :param timeout: Request timeout in seconds
+    :return: JSON response (dict) containing at least 'harvest_run_id' and optionally 'last_harvest_date'; returns None on error.
     """
     url = f"{API_BASE_URL}/harvest_run"
     payload = {"harvest_url": harvest_url}
@@ -66,13 +69,62 @@ def start_harvest_run(harvest_url: str, timeout: int = 30) -> Optional[dict]:
         print(f"Failed to start harvest run for {harvest_url}: {e}")
         return None
 
+def close_harvest_run(
+    api_base_url: str,
+    harvest_run_id: int,
+    success: bool,
+    total: int,
+    sent: int,
+    failed: int,
+    start_time: str,
+    end_time: str,
+) -> None:
+    """
+    PUT /harvest_run to close the harvest run.
 
-def send_harvest_event(api_base_url, event_payload):
+    :param api_base_url: API endpoint
+    :param harvest_run_id: harvest_run_id obtained when opening the harvest run
+    :param success: logical, whether the harvest loop finish successfully
+    :param total: total number of records obtained in the OAI-PMH response
+    :param sent: number of harvest_events successfully sent to API
+    :param failed: number of records that weren't parsed or sent to API successfully
+    :param start/end_time: start and end time of the harvest
+    """
+    url = f"{api_base_url}/harvest_run/{harvest_run_id}"
+    if success:
+        if total == 0:
+            status = "no_records_harvested"
+        elif sent == total:
+            status = "harvest_completed"
+        elif sent == 0:
+            status = "no_records_sent"
+        else:
+            status = "partial_harvest"
+    else:
+        status = "harvest_failed"
+
+    payload = {
+        "started_at": start_time,
+        "finished_at": end_time,
+        "status": status,
+        "records_harvested": sent,
+        "errors_count": failed
+    }
+
+    try:
+        response = requests.put(url, json=payload, timeout=30)
+        response.raise_for_status()
+        print(f"Closed harvest run {harvest_run_id} ({status}) — started {start_time}, finished {end_time}")
+    except requests.RequestException as e:
+        print(f"Failed to close harvest run {harvest_run_id}: {e}")
+
+
+def send_harvest_event(api_base_url: str, event_payload: Dict) -> bool:
     """
     Send event_payload to API.
 
     :param api_base_url: API endpoint
-    :param event_payload: payload for harvest_event route
+    :param event_payload: dictionary containing event data for harvest_event route
     :return logical: True if the payload has been sent to API successfully 
     """
     url = f"{api_base_url}/harvest_event"
@@ -85,15 +137,14 @@ def send_harvest_event(api_base_url, event_payload):
         return False
 
 
-def fetch_dataverse_json(doi, base_url, exporter):
+def fetch_dataverse_json(doi: str, base_url: str, exporter: str) -> Optional[str]:
     """
     Fetch additional metadata: dataverse json
 
     :param doi: record identifier
     :param base_url: dataverse API endpoint
-    :param exporter: metadata format
-
-    :return: json with additional metadata
+    :param exporter: exporter type
+    :return: stringified JSON with additional metadata; returns None on error
     """
     params = {"exporter": exporter, "persistentId": doi}
     try:
@@ -102,19 +153,20 @@ def fetch_dataverse_json(doi, base_url, exporter):
             return json.dumps(response.json(), indent=2)
         else:
             print(f"Failed to fetch Dataverse JSON for {doi}: {response.status_code}")
+            return None
     except Exception as e:
         print(f"Error fetching Dataverse JSON for {doi}: {e}")
+        return None
 
 
-def fetch_additional_oai(record_id, base_url, metadata_prefix):
+def fetch_additional_oai(record_id: str, base_url: str, metadata_prefix: str) -> Optional[str]:
     """
     Fetch additional metadata: OAI-PMH
 
     :param record_id: OAI-PMH record identifier
     :param base_url: OAI-PMH endpoint
     :param metadata_prefix: metadata format
-
-    :return: stringified xml with additional metadata
+    :return: stringified XML with additional metadata; returns None on error
     """
     try:
         with Scythe(base_url) as client:
@@ -122,6 +174,7 @@ def fetch_additional_oai(record_id, base_url, metadata_prefix):
             return ET.tostring(record.xml, pretty_print=True, encoding="unicode")
     except Exception as e:
         print(f"Error fetching {metadata_prefix} metadata for {record_id}: {e}")
+        return None
 
 
 def main():
@@ -148,6 +201,7 @@ def main():
     run_info = start_harvest_run(harvest_url)
     if run_info is None:
         sys.exit(1)
+    start_time = datetime.now(timezone.utc).isoformat()
 
     # extract harvest run info from the response
     harvest_run_id = run_info.get("harvest_run_id")
@@ -229,7 +283,18 @@ def main():
         print(f"An error occurred during harvesting: {e}")
         traceback.print_exc()
 
-    
+    finally:
+        end_time = datetime.now(timezone.utc).isoformat()
+        close_harvest_run(
+            API_BASE_URL,
+            harvest_run_id,
+            success=harvest_success,
+            total=record_count,
+            sent=harvest_events,
+            failed=failed_events,
+            start_time=start_time,
+            end_time=end_time
+        )
 
 if __name__ == "__main__":
     main()
