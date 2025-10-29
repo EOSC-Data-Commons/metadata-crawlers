@@ -174,7 +174,7 @@ def main():
                     additional_metadata = None
 
                     if not is_deleted:
-                        if additional_protocol == "dataverse_api":
+                        if additional_protocol == "REST_API":
                             additional_metadata = fetch_dataverse_json(
                                 doi=identifier,
                                 base_url=additional["endpoint"],
