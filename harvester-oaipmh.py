@@ -68,54 +68,20 @@ def start_harvest_run(harvest_url: str, timeout: int = 30) -> Optional[Dict[str,
         print(f"Failed to start harvest run for {harvest_url}: {e}")
         return None
 
-def close_harvest_run(
-    api_base_url: str,
-    harvest_run_id: int,
-    success: bool,
-    total: int,
-    sent: int,
-    failed: int,
-    start_time: str,
-    end_time: str,
-) -> None:
+def close_harvest_run(api_base_url: str, payload: Dict) -> None:
     """
     PUT /harvest_run to close the harvest run.
 
     :param api_base_url: API endpoint
-    :param harvest_run_id: harvest_run_id obtained when opening the harvest run
-    :param success: logical, whether the harvest loop finish successfully
-    :param total: total number of records obtained in the OAI-PMH response
-    :param sent: number of harvest_events successfully sent to API
-    :param failed: number of records that weren't parsed or sent to API successfully
-    :param start/end_time: start and end time of the harvest
+    :param payload: payload for API post request to close the harvest run
     """
-    url = f"{api_base_url}/harvest_run/{harvest_run_id}"
-    if success:
-        if total == 0:
-            status = "no_records_harvested"
-        elif sent == total:
-            status = "harvest_completed"
-        elif sent == 0:
-            status = "no_records_sent"
-        else:
-            status = "partial_harvest"
-    else:
-        status = "harvest_failed"
-
-    payload = {
-        "started_at": start_time,
-        "finished_at": end_time,
-        "status": status,
-        "records_harvested": sent,
-        "errors_count": failed
-    }
-
+    url = f"{api_base_url}/harvest_run"
     try:
         response = requests.put(url, json=payload, timeout=30)
         response.raise_for_status()
-        print(f"Closed harvest run {harvest_run_id} ({status}) — started {start_time}, finished {end_time}")
+        print(f"Closed harvest run {payload["id"]} — started {payload["started_at"]}, finished {payload["completed_at"]}")
     except requests.RequestException as e:
-        print(f"Failed to close harvest run {harvest_run_id}: {e}")
+        print(f"Failed to close harvest run {payload["id"]}: {e}")
 
 
 def send_harvest_event(api_base_url: str, event_payload: Dict) -> bool:
@@ -276,24 +242,23 @@ def main():
                     failed_events += 1
                     print(f"Record {record_count} failed: {e}")
 
-        harvest_success = True
+        if failed_events == 0:
+            harvest_success = True
 
     except Exception as e:
         print(f"An error occurred during harvesting: {e}")
         traceback.print_exc()
 
     finally:
+        print(f"Harvested {record_count} records. Succesfully sent {harvest_events} of them to the warehouse. Failed to upload {failed_events} records.")
         end_time = datetime.now(timezone.utc).isoformat()
-        close_harvest_run(
-            API_BASE_URL,
-            harvest_run_id,
-            success=harvest_success,
-            total=record_count,
-            sent=harvest_events,
-            failed=failed_events,
-            start_time=start_time,
-            end_time=end_time
-        )
+        close_harvest_run_payload = {
+            "id": harvest_run_id,
+            "success": harvest_success,
+            "started_at": start_time,
+            "completed_at": end_time
+        }
+        close_harvest_run(API_BASE_URL, close_harvest_run_payload)
 
 if __name__ == "__main__":
     main()
