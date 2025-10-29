@@ -14,39 +14,6 @@ from typing import Dict, Optional, Any
 NS = {"oai": "http://www.openarchives.org/OAI/2.0/"}
 API_BASE_URL = ""
 
-def load_repo_config(harvest_url: str, timeout: int = 30) -> Dict[str, Any]:
-    """
-    Fetch repository configuration from API.
-
-    :param harvest_url: endpoint for harvesting
-    :param timeout: request timeout in seconds
-    :return: json file with config data for the matching repository
-    :raises SystemExit: If configuration cannot be fetched or no matching repository found
-    """
-    url = f"{API_BASE_URL}/config"
-    try:
-        response = requests.get(url, timeout=timeout)
-        response.raise_for_status()
-    except requests.RequestException as e:
-        print(f"Failed to fetch repository configuration list from API: {e}")
-        sys.exit(1)
-
-    try:
-        payload = response.json()
-    except ValueError as e:
-        print(f"Invalid JSON returned from {url}: {e}")
-        sys.exit(1)
-
-    endpoints = payload.get("endpoints_configs")
-    config = next((c for c in endpoints if c["harvest_url"] == harvest_url), None)
-
-    if config is None:
-        print(f"No config found for harvest_url '{harvest_url}'.")
-        sys.exit(2)
-
-    print(f"Loaded config for repository '{config.get('code')}' ({harvest_url}).")
-    return config
-
 
 def start_harvest_run(harvest_url: str, timeout: int = 30) -> Optional[Dict[str, Any]]:
     """
@@ -54,7 +21,7 @@ def start_harvest_run(harvest_url: str, timeout: int = 30) -> Optional[Dict[str,
     
     :param harvest_url: endpoint for harvesting
     :param timeout: Request timeout in seconds
-    :return: JSON response (dict) containing at least 'harvest_run_id' and optionally 'last_harvest_date'; returns None on error.
+    :return: JSON response (dict) containing 'harvest_run_id', optionally 'last_harvest_date', and endpoint config; returns None on error.
     """
     url = f"{API_BASE_URL}/harvest_run"
     payload = {"harvest_url": harvest_url}
@@ -148,19 +115,6 @@ def main():
     args = parser.parse_args()
 
     harvest_url = args.harvest_url
-    config = load_repo_config(harvest_url)
-
-    # this is an OAI-PMH harvester, exit if it's triggered by a repo with a different primary harvesting protocol
-    if config.get("protocol") != "OAI-PMH":
-        print(f"Repository '{config["name"]}' skipped: protocol '{config.get("protocol")}' is not supported by this harvester.")
-        sys.exit(3)
-
-    # extract harvest parameters from the config
-    metadata_prefix = config["harvest_params"].get("metadata_prefix", "oai_dc")
-    set = config["harvest_params"].get("set")
-    code = config.get("code")
-    additional = config.get("additional_metadata_params")
-    additional_protocol = additional.get("protocol") if additional else None
 
     # start new harvest run
     run_info = start_harvest_run(harvest_url)
@@ -169,17 +123,31 @@ def main():
     start_time = datetime.now(timezone.utc).isoformat()
 
     # extract harvest run info from the response
-    harvest_run_id = run_info.get("harvest_run_id")
-    last_harvest_date = run_info.get("last_harvest_date")
+    harvest_run_id = run_info.get("id")
+    from_date = run_info.get("from_date")
+    config = run_info.get("endpoint_config")
+
+    # this is an OAI-PMH harvester, exit if it's triggered by a repo with a different primary harvesting protocol
+    if config.get("protocol") != "OAI-PMH":
+        print(f"Repository '{config["name"]}' skipped: protocol '{config.get("protocol")}' is not supported by this harvester.")
+        sys.exit(3)
+
+    # extract harvest parameters from the config
+    harvest_params = config.get("harvest_params")
+    metadata_prefix = harvest_params.get("metadata_prefix", "oai_dc")
+    set = harvest_params.get("set")
+    code = config.get("code")
+    additional = harvest_params.get("additional_metadata_params")
+    additional_protocol = additional.get("protocol") if additional else None
 
     # harvesting
     harvest_success = False
     try:
         with Scythe(harvest_url) as client:
-            if last_harvest_date:
-                print(f"Incremental harvest since {last_harvest_date}")
+            if from_date:
+                print(f"Incremental harvest since {from_date}")
                 records = client.list_records(
-                    from_=last_harvest_date,
+                    from_=from_date,
                     metadata_prefix=metadata_prefix,
                     set_=set
                 )
@@ -200,7 +168,6 @@ def main():
 
                 try:
                     identifier = record.header.identifier
-                    datestamp = record.header.datestamp
                     is_deleted = getattr(record.header, "status", None) == "deleted"
                     raw_metadata = ET.tostring(record.xml, pretty_print=True, encoding="unicode")
 
@@ -211,26 +178,25 @@ def main():
                             additional_metadata = fetch_dataverse_json(
                                 doi=identifier,
                                 base_url=additional["endpoint"],
-                                exporter=additional["method"]
+                                exporter=additional["format"]
                             )
 
                         elif additional_protocol == "OAI-PMH":
                             additional_metadata = fetch_additional_oai(
                                 record_id=identifier,
                                 base_url=additional["endpoint"],
-                                metadata_prefix=additional["method"]
+                                metadata_prefix=additional["format"]
                             )
 
                     # metadata and record info to be sent to the warehouse
                     event_payload = {
-                        "harvest_run_id": harvest_run_id,
                         "record_identifier": identifier,
-                        "datestamp": datestamp,
-                        "is_deleted": is_deleted,
+                        #"is_deleted": is_deleted,                  # do we want to include this?
                         "raw_metadata": raw_metadata,
                         "additional_metadata": additional_metadata,
                         "harvest_url": harvest_url,
-                        "repo_code": code
+                        "repo_code": code,                          # do we need this?
+                        "harvest_run_id": harvest_run_id
                     }
                     
                     if send_harvest_event(API_BASE_URL, event_payload):
