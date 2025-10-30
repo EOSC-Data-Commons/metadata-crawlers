@@ -1,233 +1,144 @@
-#!/usr/bin/env python3
-import os
-import argparse
-from copy import deepcopy
+"""
+ddi_to_datacite.py
+
+Convert a DDI 2.5 metadata record (XML) to a DataCite 4.x metadata record (XML).
+"""
+
 from lxml import etree as ET
 
-# Namespaces
-DDI_NS = {"ddi": "ddi:codebook:2_5"}  # DDI 2.5 codebook
+# XML namespaces
+DDI_NS = {"ddi": "ddi:codebook:2_5"}
 OAI_NS = "http://www.openarchives.org/OAI/2.0/"
 DATACITE_NS = "http://datacite.org/schema/kernel-4"
 XSI_NS = "http://www.w3.org/2001/XMLSchema-instance"
 XML_NS = "http://www.w3.org/XML/1998/namespace"
 XML_LANG = f"{{{XML_NS}}}lang"
 
-MANDATORY_FIELDS = ["identifier", "creators", "titles", "publisher", "publicationYear"]
+# Mandatory fields for DataCite schema
+MANDATORY_FIELDS = ["identifier", "creators", "titles", "publisher", "publicationYear", "resourceType"]
 
-def ddi25_to_datacite(ddi_xml_path, output_path):
-    tree = ET.parse(ddi_xml_path)
-    root = tree.getroot()
 
-    # Extract DDI fields
-    identifiers = root.findall(".//ddi:IDNo", namespaces=DDI_NS)
-    doi = None
-    alternate_ids = []
-    for ident in identifiers:
-        val = (ident.text or "").strip()
-        if not val:
-            continue
-        agency = ident.attrib.get("agency", "").lower()
-        if agency == "doi":
-            doi = val
-        else:
-            alternate_ids.append(val)
+def ddi25_to_datacite_xml(ddi_xml: str) -> str:
+    """
+    Transform a DDI 2.5 XML into a DataCite XML
+    wrapped in an OAI-PMH <record> element.
 
-    titles = root.findall(".//ddi:titl", namespaces=DDI_NS)
-    creators = root.findall(".//ddi:AuthEnty", namespaces=DDI_NS)
-    publisher = root.findtext(".//ddi:distrbtr", namespaces=DDI_NS)
-    dates = root.findall(".//ddi:distDate", namespaces=DDI_NS)
-    subjects = root.findall(".//ddi:topcClas", namespaces=DDI_NS)
-    abstracts = root.findall(".//ddi:abstract", namespaces=DDI_NS)
-    coverage = root.findall(".//ddi:nation", namespaces=DDI_NS)
-    rights = root.findall(".//ddi:restrctn", namespaces=DDI_NS)
-    formats = root.findall(".//ddi:fileName", namespaces=DDI_NS)
+    :param ddi_xml: Raw DDI 2.5 XML string
+    :return: Transformed DataCite XML string
+    """
+    parser = ET.XMLParser(remove_blank_text=True)
+    root = ET.fromstring(ddi_xml.encode("utf-8"), parser=parser)
 
-    # Get header from OAI wrapper
-    header_orig = root.find(f".//{{{OAI_NS}}}header")
-    if header_orig is None:
-        raise ValueError(f"No <header> element found in {ddi_xml_path}")
+    # Namespaces for output
+    NSMAP = {
+        None: DATACITE_NS,
+        "xsi": XSI_NS
+    }
 
-    record = ET.Element(f"{{{OAI_NS}}}record", nsmap={None: OAI_NS, "xsi": XSI_NS})
-    record_header = ET.SubElement(record, f"{{{OAI_NS}}}header")
-
-    for child in header_orig:
-        new_child = ET.SubElement(record_header, child.tag, attrib=child.attrib)
-        new_child.text = child.text
-
-    metadata_el = ET.SubElement(record, f"{{{OAI_NS}}}metadata")
-
-    resource = ET.SubElement(
-        metadata_el,
-        f"{{{DATACITE_NS}}}resource",
-        nsmap={None: DATACITE_NS, "xsi": XSI_NS},
-    )
-    resource.set(
-        f"{{{XSI_NS}}}schemaLocation",
-        f"{DATACITE_NS} http://schema.datacite.org/meta/kernel-4.6/metadata.xsd",
+    # --- Create DataCite resource element ---
+    resource = ET.Element("resource", nsmap=NSMAP)
+    resource.attrib[f"{{{XSI_NS}}}schemaLocation"] = (
+        f"{DATACITE_NS} https://schema.datacite.org/meta/kernel-4.6/metadata.xsd"
     )
 
-    # identifier
-    if doi:
-        ET.SubElement(resource, f"{{{DATACITE_NS}}}identifier", identifierType="DOI").text = doi
-    elif alternate_ids:
-        alt_id_el = ET.SubElement(resource, f"{{{DATACITE_NS}}}alternateIdentifiers")
-        for aid in alternate_ids:
-            ET.SubElement(
-                alt_id_el,
-                f"{{{DATACITE_NS}}}alternateIdentifier",
-                alternateIdentifierType="Other",
-            ).text = aid
+    # ---- IDENTIFIER ----
+    id = root.xpath("string(//ddi:stdyDscr/ddi:citation/ddi:titlStmt/ddi:IDNo/text())", namespaces=DDI_NS)
+    if id:
+        id_elem = ET.SubElement(resource, "identifier", identifierType="DOI")
+        id_elem.text = id.strip()
 
-    # creators
+    # ---- CREATOR(S) ----
+    creators_elem = ET.SubElement(resource, "creators")
+    creators = root.xpath("//ddi:stdyDscr/ddi:citation/ddi:rspStmt/ddi:AuthEnty", namespaces=DDI_NS)
     if creators:
-        creators_el = ET.SubElement(resource, f"{{{DATACITE_NS}}}creators")
-        for cr in creators:
-            name_text = (cr.text or "").strip()
-            if not name_text:
-                continue
-            cr_el = ET.SubElement(creators_el, f"{{{DATACITE_NS}}}creator")
-            name_el = ET.SubElement(cr_el, f"{{{DATACITE_NS}}}creatorName")
-            name_el.text = name_text
-            if XML_LANG in cr.attrib:
-                name_el.set(XML_LANG, cr.attrib[XML_LANG])
+        for c in creators:
+            creator_elem = ET.SubElement(creators_elem, "creator")
+            name_elem = ET.SubElement(creator_elem, "creatorName")
+            name_elem.text = c.text.strip()
+    else:
+        print("No creators found in DDI.")
 
-    # titles
-    # titles
-    if titles:
-        titles_el = ET.SubElement(resource, f"{{{DATACITE_NS}}}titles")
-        seen_titles = set()
-        for t in titles:
-            t_val = (t.text or "").strip()
-            if not t_val:
-                continue
-            # Build a key: value + lang (if any)
-            lang = t.attrib.get(XML_LANG, "")
-            key = (t_val, lang)
-            if key in seen_titles:
-                continue  # skip duplicates
-            seen_titles.add(key)
+    # ---- TITLES ----
+    titles_elem = ET.SubElement(resource, "titles")
+    titles = root.xpath("//ddi:stdyDscr/ddi:citation/ddi:titlStmt/ddi:titl", namespaces=DDI_NS)
+    for t in titles:
+        title_elem = ET.SubElement(titles_elem, "title")
+        title_elem.text = t.text.strip()
 
-            t_el = ET.SubElement(titles_el, f"{{{DATACITE_NS}}}title")
-            t_el.text = t_val
-            if lang:
-                t_el.set(XML_LANG, lang)
+    # ---- PUBLISHER ----
+    publisher_text = root.xpath("string(//ddi:stdyDscr/ddi:citation/ddi:distStmt/ddi:distrbtr)", namespaces=DDI_NS)
+    publisher_elem = ET.SubElement(resource, "publisher")
+    publisher_elem.text = publisher_text.strip() if publisher_text else "Unknown publisher"
 
+    # ---- PUBLICATION YEAR ----
+    pub_year = root.xpath("string(//ddi:stdyDscr/ddi:citation/ddi:verStmt/ddi:version/@date)", namespaces=DDI_NS)
+    if not pub_year:
+        pub_year = root.xpath("string(//ddi:stdyDscr/ddi:citation/ddi:prodStmt/ddi:prodDate/text())", namespaces=DDI_NS)
+    pub_year_elem = ET.SubElement(resource, "publicationYear")
+    pub_year_elem.text = pub_year[:4] if pub_year else "0000"
 
-    # publisher
-    if publisher and publisher.strip():
-        ET.SubElement(resource, f"{{{DATACITE_NS}}}publisher").text = publisher.strip()
+    # ---- RESOURCE TYPE ----
+    res_type_elem = ET.SubElement(resource, "resourceType", resourceTypeGeneral="Dataset")
+    res_type_elem.text = "Dataset"
 
-    # dates
-    if dates:
-        first_date = dates[0].attrib.get("date") or (dates[0].text or "").strip()
-        year = first_date[:4] if first_date and len(first_date) >= 4 and first_date[:4].isdigit() else None
-        if year:
-            ET.SubElement(resource, f"{{{DATACITE_NS}}}publicationYear").text = year
+    # ---- CONTRIBUTORS ----
+    contributors = root.xpath("//ddi:stdyDscr/ddi:citation/ddi:rspStmt/ddi:othId", namespaces=DDI_NS)
+    if contributors:
+        contribs_elem = ET.SubElement(resource, "contributors")
+        for c in contributors:
+            contrib_elem = ET.SubElement(contribs_elem, "contributor", contributorType="Other")
+            name_elem = ET.SubElement(contrib_elem, "contributorName")
+            name_elem.text = c.text.strip()
 
-        dates_el = ET.SubElement(resource, f"{{{DATACITE_NS}}}dates")
-        for d in dates:
-            d_val = d.attrib.get("date") or (d.text or "").strip()
-            if not d_val:
-                continue
-            d_el = ET.SubElement(dates_el, f"{{{DATACITE_NS}}}date", dateType="Issued")
-            d_el.text = d_val
-
-    # subjects
-    if subjects:
-        subjects_el = ET.SubElement(resource, f"{{{DATACITE_NS}}}subjects")
-        for subj in subjects:
-            s_text = (subj.text or "").strip()
-            if not s_text:
-                continue
-            s_el = ET.SubElement(subjects_el, f"{{{DATACITE_NS}}}subject")
-            s_el.text = s_text
-            if XML_LANG in subj.attrib:
-                s_el.set(XML_LANG, subj.attrib[XML_LANG])
-
-    # abstracts
+    # ---- DESCRIPTIONS ----
+    abstracts = root.xpath("//ddi:stdyDscr/ddi:stdyInfo/ddi:abstract", namespaces=DDI_NS)
     if abstracts:
-        descriptions_el = ET.SubElement(resource, f"{{{DATACITE_NS}}}descriptions")
-        for abs_el in abstracts:
-            a_text = (abs_el.text or "").strip()
-            if not a_text:
-                continue
-            d_el = ET.SubElement(
-                descriptions_el,
-                f"{{{DATACITE_NS}}}description",
-                descriptionType="Abstract"
-            )
-            d_el.text = a_text
-            if XML_LANG in abs_el.attrib:
-                d_el.set(XML_LANG, abs_el.attrib[XML_LANG])
+        descs_elem = ET.SubElement(resource, "descriptions")
+        for a in abstracts:
+            desc_elem = ET.SubElement(descs_elem, "description", descriptionType="Abstract")
+            desc_elem.text = a.text.strip()
 
-    # coverage → geoLocations
-    if coverage:
-        geo_el = ET.SubElement(resource, f"{{{DATACITE_NS}}}geoLocations")
-        for cov in coverage:
-            c_text = (cov.text or "").strip()
-            if c_text:
-                g_el = ET.SubElement(geo_el, f"{{{DATACITE_NS}}}geoLocation")
-                place_el = ET.SubElement(g_el, f"{{{DATACITE_NS}}}geoLocationPlace")
-                place_el.text = c_text
-                if XML_LANG in cov.attrib:
-                    place_el.set(XML_LANG, cov.attrib[XML_LANG])
+    # ---- SUBJECTS ----
+    keywords = root.xpath("//ddi:stdyDscr/ddi:stdyInfo/ddi:subject/ddi:keyword", namespaces=DDI_NS)
+    if keywords:
+        subjects_elem = ET.SubElement(resource, "subjects")
+        for k in keywords:
+            subj_elem = ET.SubElement(subjects_elem, "subject")
+            subj_elem.text = k.text.strip()
 
-    # rights
-    if rights:
-        rights_el = ET.SubElement(resource, f"{{{DATACITE_NS}}}rightsList")
-        for r in rights:
-            r_text = (r.text or "").strip()
-            if not r_text:
-                continue
-            r_el = ET.SubElement(rights_el, f"{{{DATACITE_NS}}}rights")
-            r_el.text = r_text
-            if XML_LANG in r.attrib:
-                r_el.set(XML_LANG, r.attrib[XML_LANG])
+    # ---- LANGUAGES ----
+    lang = root.xpath("string(//ddi:stdyDscr/@xml:lang)", namespaces=DDI_NS)
+    if lang:
+        lang_elem = ET.SubElement(resource, "language")
+        lang_elem.text = lang
 
-    # formats (file names)
-    if formats:
-        formats_el = ET.SubElement(resource, f"{{{DATACITE_NS}}}formats")
-        for f in formats:
-            f_text = (f.text or "").strip()
-            if f_text:
-                ET.SubElement(formats_el, f"{{{DATACITE_NS}}}format").text = f_text
+    # ---- OAI WRAPPER (optional, for consistency with harvested format) ----
+    record = ET.Element(f"{{{OAI_NS}}}record", nsmap={"oai": OAI_NS})
+    metadata = ET.SubElement(record, f"{{{OAI_NS}}}metadata")
+    metadata.append(resource)
 
-    # ---------- Missing mandatory fields warnings ----------
-    for field in MANDATORY_FIELDS:
-        if resource.find(f".//{{{DATACITE_NS}}}{field}") is None:
-            print(f"Warning: Missing mandatory field '{field}' in {ddi_xml_path}")
-
-    # ---------- Save ----------
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    ET.ElementTree(record).write(
-        output_path,
+    # --- Return as pretty string ---
+    return ET.tostring(
+        record,
         pretty_print=True,
         xml_declaration=True,
-        encoding="UTF-8",
-    )
+        encoding="UTF-8"
+    ).decode("utf-8")
 
-def bulk_convert_ddi25_to_datacite(input_folder, output_folder):
-    print("Hello")
-    os.makedirs(output_folder, exist_ok=True)
-    for filename in os.listdir(input_folder):
-        if filename.endswith(".oai_ddi25.xml"):
-            in_path = os.path.join(input_folder, filename)
-            clean_id = filename.replace(".oai_ddi25.xml", "")
-            out_filename = f"{clean_id}.oai_datacite.xml"
-            out_path = os.path.join(output_folder, out_filename)
-            try:
-                ddi25_to_datacite(in_path, out_path)
-            except Exception as e:
-                print(f"Failed to convert {filename}: {e}")
 
+# CLI for testing
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Convert DDI 2.5 OAI-PMH XMLs to OAI-PMH + DataCite 4.6 XMLs")
-    parser.add_argument("-i", required=True, help="Input folder containing DDI 2.5 XML files")
-    parser.add_argument("-o", required=True, help="Output folder for DataCite XML files")
-    args = parser.parse_args()
+    import sys
+    if len(sys.argv) != 3:
+        print("Usage: python ddi_to_datacite.py input.xml output.xml")
+        sys.exit(1)
 
-    if args.i is None or not os.path.isdir(args.i) or args.o is None or not os.path.isdir(args.o):
-        parser.print_help()
-        exit(1)
+    with open(sys.argv[1], "r", encoding="utf-8") as f:
+        ddi_xml = f.read()
 
-    bulk_convert_ddi25_to_datacite(args.i, args.o)
+    datacite_xml = ddi25_to_datacite_xml(ddi_xml)
+
+    with open(sys.argv[2], "w", encoding="utf-8") as f:
+        f.write(datacite_xml)
+
+    print(f"Converted {sys.argv[1]} → {sys.argv[2]}")
