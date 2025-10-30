@@ -12,7 +12,7 @@ import traceback
 from typing import Dict, Optional, Any
 
 NS = {"oai": "http://www.openarchives.org/OAI/2.0/"}
-API_BASE_URL = ""
+API_BASE_URL = "http://127.0.0.1:8080"
 
 
 def start_harvest_run(harvest_url: str, timeout: int = 30) -> Optional[Dict[str, Any]]:
@@ -29,7 +29,7 @@ def start_harvest_run(harvest_url: str, timeout: int = 30) -> Optional[Dict[str,
         response = requests.post(url, json=payload, timeout=timeout)
         response.raise_for_status()
         run_info = response.json()
-        print(f"Started harvest run id={run_info.get('harvest_run_id')}.")
+        print(f"Started harvest run id={run_info.get('id')}.")
         return run_info
     except requests.RequestException as e:
         print(f"Failed to start harvest run for {harvest_url}: {e}")
