@@ -10,6 +10,7 @@ from oaipmh_scythe import Scythe
 import requests
 import traceback
 from typing import Dict, Optional, Any
+from ddi_to_datacite import ddi25_to_datacite_xml
 
 NS = {"oai": "http://www.openarchives.org/OAI/2.0/"}
 API_BASE_URL = "http://127.0.0.1:8080"
@@ -187,6 +188,10 @@ def main():
                                 base_url=additional["endpoint"],
                                 metadata_prefix=additional["format"]
                             )
+
+                        elif metadata_prefix == "oai_ddi25":
+                            additional_metadata = raw_metadata
+                            raw_metadata = ddi25_to_datacite_xml(raw_metadata)
 
                     # metadata and record info to be sent to the warehouse
                     event_payload = {
