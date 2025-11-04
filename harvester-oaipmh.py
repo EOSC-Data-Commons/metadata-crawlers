@@ -36,6 +36,30 @@ def start_harvest_run(harvest_url: str, timeout: int = 30) -> Optional[Dict[str,
         print(f"Failed to start harvest run for {harvest_url}: {e}")
         return None
 
+def get_open_run_id(harvest_url: str, timeout: int = 30) -> Optional[Dict]:
+    """
+    GET /harvest_run to fetch an open harvest run ID if it exists.
+
+    :param harvest_url: endpoint for harvesting
+    :param timeout: Request timeout in seconds
+    :return: JSON response (dict) containing the ID of an open harvest run, or None if not found or failed
+    """
+    url = f"{API_BASE_URL}/harvest_run"
+    params = {"harvest_url": harvest_url}
+    try:
+        response = requests.get(url, params=params, timeout=timeout)
+        response.raise_for_status()
+
+        run_id = response.json()
+        if run_id:
+            return run_id
+        else:
+            return None
+
+    except requests.RequestException as e:
+        print(f"Error checking for open harvest run for {harvest_url}: {e}")
+        return None
+
 def close_harvest_run(api_base_url: str, payload: Dict) -> None:
     """
     PUT /harvest_run to close the harvest run.
@@ -137,37 +161,54 @@ def main():
 
     # start new harvest run
     run_info = start_harvest_run(harvest_url)
-    if run_info is None:
-        sys.exit(1)
     start_time = datetime.now(timezone.utc).isoformat()
 
-    # extract harvest run info from the response
+    # if there is no response, try closing it
+    if run_info is None:
+        print("Failed to start harvest run, checking for existing open run...")
+        open_run_id = get_open_run_id(harvest_url)  
+        if open_run_id:
+            print(f"Closing harvest run {open_run_id} with status 'failed'")
+            end_time = datetime.now(timezone.utc).isoformat()
+            close_harvest_run_payload = {
+                "id": open_run_id,
+                "success": False,
+                "started_at": start_time,
+                "completed_at": end_time
+                }
+            close_harvest_run(API_BASE_URL, close_harvest_run_payload)
+        sys.exit(1)
+    
+    
     harvest_run_id = run_info.get("id")
-    from_date = run_info.get("from_date")
-    config = run_info.get("endpoint_config")
-
-    # this is an OAI-PMH harvester, exit if it's triggered by a repo with a different primary harvesting protocol
-    if config.get("protocol") != "OAI-PMH":
-        print(f"Repository '{config["name"]}' skipped: protocol '{config.get("protocol")}' is not supported by this harvester.")
-        sys.exit(3)
-
-    # extract harvest parameters from the config
-    harvest_params = config.get("harvest_params")
-    metadata_prefix = harvest_params.get("metadata_prefix", "oai_dc")
-    set = harvest_params.get("set")
-    code = config.get("code")
-    additional = harvest_params.get("additional_metadata_params")
-    additional_protocol = additional.get("protocol") if additional else None
-
-    # if schema is not DataCite, we will need to transform the XML
-    if metadata_prefix == "oai_ddi25":
-        XSLT_PATH = os.path.join(BASE_DIR, "ddi_to_datacite.xsl")
-        xslt_doc = ET.parse("XSLT_PATH")
-        transform = ET.XSLT(xslt_doc)
-
-    # harvesting
     harvest_success = False
     try:
+        # setup for harvest
+        # extract config from the response
+        from_date = run_info.get("from_date")
+        config = run_info.get("endpoint_config")
+        if not config:
+            raise ValueError("Missing endpoint configuration in run_info")
+
+        # this is an OAI-PMH harvester, raise error if it's triggered by a repo with a different primary harvesting protocol
+        if config.get("protocol") != "OAI-PMH":
+            raise ValueError(f"Protocol {config.get('protocol')} is not supported by this harvester")
+
+        # extract harvest parameters from the config
+        harvest_params = config.get("harvest_params")
+        metadata_prefix = harvest_params.get("metadata_prefix", "oai_dc")
+        set = harvest_params.get("set")
+        code = config.get("code")
+        additional = harvest_params.get("additional_metadata_params")
+        additional_protocol = additional.get("protocol") if additional else None
+
+        # if schema is not DataCite, we will need to transform the XML
+        if metadata_prefix == "oai_ddi25":
+            XSLT_PATH = os.path.join(BASE_DIR, "ddi_to_datacite.xsl")
+            xslt_doc = ET.parse(XSLT_PATH)
+            transform = ET.XSLT(xslt_doc)
+
+        # harvesting
         with Scythe(harvest_url) as client:
             if from_date:
                 print(f"Incremental harvest since {from_date}")
