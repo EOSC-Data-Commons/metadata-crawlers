@@ -2,6 +2,7 @@
 # runs with repository endpoint as argument: python harvester-oaipmh.py {repository_url}
 
 import sys
+import os
 import argparse
 from datetime import datetime, timezone
 from lxml import etree as ET
@@ -10,11 +11,10 @@ from oaipmh_scythe import Scythe
 import requests
 import traceback
 from typing import Dict, Optional, Any
-from ddi_to_datacite import ddi25_to_datacite_xml
 
 NS = {"oai": "http://www.openarchives.org/OAI/2.0/"}
 API_BASE_URL = "http://127.0.0.1:8080"
-
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def start_harvest_run(harvest_url: str, timeout: int = 30) -> Optional[Dict[str, Any]]:
     """
@@ -110,6 +110,24 @@ def fetch_additional_oai(record_id: str, base_url: str, metadata_prefix: str) ->
         return None
 
 
+def apply_xslt_transform(ddi_xml: str, transform: ET.XSLT) -> str | None:
+    """
+    Apply a precompiled XSLT transform to a DDI XML string. (for SwissUBase)
+
+    :param ddi_xml: DDI XML as string
+    :param transform: Compiled lxml.etree.XSLT object
+    :return: Transformed XML as string, or None on failure
+    """
+    try:
+        ddi_doc = ET.fromstring(ddi_xml.encode("utf-8"))
+        result_tree = transform(ddi_doc)
+        return ET.tostring(result_tree, pretty_print=True, encoding="UTF-8").decode("utf-8")
+    except Exception as e:
+        print(f"Transformation failed: {e}")
+        return None
+
+
+
 def main():
     parser = argparse.ArgumentParser(description="OAI-PMH Harvester (with the possibility of harvesting additional metadata)")
     parser.add_argument("harvest_url", help="Repository OAI-PMH base URL")
@@ -140,6 +158,12 @@ def main():
     code = config.get("code")
     additional = harvest_params.get("additional_metadata_params")
     additional_protocol = additional.get("protocol") if additional else None
+
+    # if schema is not DataCite, we will need to transform the XML
+    if metadata_prefix == "oai_ddi25":
+        XSLT_PATH = os.path.join(BASE_DIR, "ddi_to_datacite.xsl")
+        xslt_doc = ET.parse("XSLT_PATH")
+        transform = ET.XSLT(xslt_doc)
 
     # harvesting
     harvest_success = False
@@ -191,17 +215,21 @@ def main():
 
                         elif metadata_prefix == "oai_ddi25":
                             additional_metadata = raw_metadata
-                            raw_metadata = ddi25_to_datacite_xml(raw_metadata)
+                            raw_metadata = apply_xslt_transform(raw_metadata, transform)
+                            if raw_metadata is None:
+                                print(f"Skipping record {identifier}: transformation to DataCite failed.")
+                                failed_events += 1
+                                continue
 
                     # metadata and record info to be sent to the warehouse
                     event_payload = {
                         "record_identifier": identifier,
-                        #"is_deleted": is_deleted,                  # do we want to include this?
                         "raw_metadata": raw_metadata,
                         "additional_metadata": additional_metadata,
                         "harvest_url": harvest_url,
                         "repo_code": code,                          # do we need this?
-                        "harvest_run_id": harvest_run_id
+                        "harvest_run_id": harvest_run_id,
+                        "is_deleted": is_deleted
                     }
                     
                     if send_harvest_event(API_BASE_URL, event_payload):
