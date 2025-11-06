@@ -234,6 +234,7 @@ def main():
 
                 try:
                     identifier = record.header.identifier
+                    datestamp = record.header.datestamp
                     is_deleted = getattr(record.header, "status", None) == "deleted"
                     raw_metadata = ET.tostring(record.xml, pretty_print=True, encoding="unicode")
 
@@ -265,6 +266,7 @@ def main():
                     # metadata and record info to be sent to the warehouse
                     event_payload = {
                         "record_identifier": identifier,
+                        "datestamp": datestamp,
                         "raw_metadata": raw_metadata,
                         "additional_metadata": additional_metadata,
                         "harvest_url": harvest_url,
