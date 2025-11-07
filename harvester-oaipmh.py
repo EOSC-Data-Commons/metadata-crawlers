@@ -42,7 +42,7 @@ def get_open_run_id(harvest_url: str, timeout: int = 30) -> Optional[Dict]:
 
     :param harvest_url: endpoint for harvesting
     :param timeout: Request timeout in seconds
-    :return: JSON response (dict) containing the ID of an open harvest run, or None if not found or failed
+    :return: JSON response (dict) containing the ID of a harvest run and its status, or None if not found or failed
     """
     url = f"{API_BASE_URL}/harvest_run"
     params = {"harvest_url": harvest_url}
@@ -50,9 +50,9 @@ def get_open_run_id(harvest_url: str, timeout: int = 30) -> Optional[Dict]:
         response = requests.get(url, params=params, timeout=timeout)
         response.raise_for_status()
 
-        run_id = response.json()
-        if run_id:
-            return run_id
+        response = response.json()
+        if response["status"] == "open":
+            return response["id"]
         else:
             return None
 
@@ -209,7 +209,7 @@ def main():
             transform = ET.XSLT(xslt_doc)
 
         # harvesting
-        with Scythe(harvest_url) as client:
+        with Scythe(harvest_url, timeout=180, max_retries=3, default_retry_after=60) as client:
             if from_date:
                 print(f"Incremental harvest since {from_date}")
                 records = client.list_records(
