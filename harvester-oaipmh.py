@@ -11,6 +11,7 @@ from oaipmh_scythe import Scythe
 import requests
 import traceback
 from typing import Dict, Optional, Any
+import time
 
 NS = {"oai": "http://www.openarchives.org/OAI/2.0/"}
 API_BASE_URL = "http://127.0.0.1:8080"
@@ -73,7 +74,10 @@ def close_harvest_run(api_base_url: str, payload: Dict) -> None:
         response.raise_for_status()
         print(f"Closed harvest run {payload["id"]} — started {payload["started_at"]}, finished {payload["completed_at"]}")
     except requests.RequestException as e:
-        print(f"Failed to close harvest run {payload["id"]}: {e}")
+        if e.response is not None:
+            print(f"Failed to close harvest run {payload["id"]}: API error: {e.response.status_code} {e.response.text}")
+        else:
+            print(f"Failed to close harvest run {payload["id"]}: {e}")
 
 
 def send_harvest_event(api_base_url: str, event_payload: Dict) -> bool:
@@ -283,6 +287,9 @@ def main():
                 except Exception as e:
                     failed_events += 1
                     print(f"Record {record_count} failed: {e}")
+
+                if record_count % 10 == 0:
+                    time.sleep(2)
 
         if failed_events == 0:
             harvest_success = True
