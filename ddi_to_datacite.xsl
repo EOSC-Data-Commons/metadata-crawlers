@@ -9,48 +9,39 @@
   
   <xsl:output method="xml" indent="yes" encoding="UTF-8"/>
   
-  <!-- Root template - preserve OAI-PMH structure -->
+  <!-- Root template -->
   <xsl:template match="/">
-    <OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/"
-             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-             xsi:schemaLocation="http://www.openarchives.org/OAI/2.0/ http://www.openarchives.org/OAI/2.0/OAI-PMH.xsd">
-      <xsl:apply-templates select="oai:OAI-PMH/oai:responseDate"/>
-      <xsl:apply-templates select="oai:OAI-PMH/oai:request"/>
-      <xsl:apply-templates select="oai:OAI-PMH/oai:ListRecords"/>
-      <xsl:apply-templates select="oai:OAI-PMH/oai:GetRecord"/>
-      <xsl:apply-templates select="oai:record"/>
-    </OAI-PMH>
-  </xsl:template>
-  
-  <!-- Copy OAI-PMH header elements -->
-  <xsl:template match="oai:responseDate|oai:request">
-    <xsl:copy-of select="."/>
-  </xsl:template>
-  
-  <!-- Process ListRecords or GetRecord -->
-  <xsl:template match="oai:ListRecords|oai:GetRecord">
-    <xsl:element name="{local-name()}" namespace="http://www.openarchives.org/OAI/2.0/">
-      <xsl:apply-templates select="oai:record"/>
-    </xsl:element>
-  </xsl:template>
-  
-  <!-- Process individual records -->
-  <xsl:template match="oai:record">
-    <record xmlns="http://www.openarchives.org/OAI/2.0/">
-      <!-- Copy header unchanged -->
-      <xsl:copy-of select="oai:header"/>
+    <record xmlns="http://www.openarchives.org/OAI/2.0/"
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+      <!-- Copy header -->
+      <xsl:element name="header" namespace="http://www.openarchives.org/OAI/2.0/">
+        <!-- copy header attributes -->
+        <xsl:for-each select="oai:record/oai:header/@*">
+          <xsl:attribute name="{name()}">
+            <xsl:value-of select="."/>
+          </xsl:attribute>
+        </xsl:for-each>
+        
+        <!-- recreate each child element as an OAI element (same local-name), copying attributes and text value only -->
+        <xsl:for-each select="oai:record/oai:header/*">
+          <xsl:element name="{local-name()}" namespace="http://www.openarchives.org/OAI/2.0/">
+            <xsl:copy-of select="@*"/>
+            <xsl:value-of select="normalize-space(.)"/>
+          </xsl:element>
+        </xsl:for-each>
+      </xsl:element>
+
       
       <!-- Transform metadata -->
       <metadata>
-        <xsl:apply-templates select="oai:metadata/ddi:codeBook"/>
+        <xsl:apply-templates select="oai:record/oai:metadata/ddi:codeBook | record/metadata/ddi:codeBook"/>
       </metadata>
       
       <!-- Copy about if present -->
-      <xsl:if test="oai:about">
-        <xsl:copy-of select="oai:about"/>
-      </xsl:if>
+      <xsl:copy-of select="oai:record/oai:about | record/about"/>
     </record>
   </xsl:template>
+  
   
   <!-- Main DDI to DataCite 4.6 transformation -->
   <xsl:template match="ddi:codeBook">
