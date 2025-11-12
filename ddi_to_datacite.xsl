@@ -444,16 +444,18 @@
       .//ddi:stdyDscr/ddi:citation/ddi:verStmt/ddi:version/@date or
       .//ddi:stdyDscr/ddi:stdyInfo/ddi:sumDscr/ddi:timePrd or
       .//ddi:stdyDscr/ddi:citation/ddi:distStmt/ddi:distDate">
+      
       <datacite:dates>
+        
         <!-- Production Date -->
         <xsl:for-each select=".//ddi:stdyDscr/ddi:citation/ddi:prodStmt/ddi:prodDate">
           <datacite:date dateType="Created">
             <xsl:choose>
               <xsl:when test="@date">
-                <xsl:value-of select="@date"/>
+                <xsl:value-of select="substring-before(@date, 'T')"/>
               </xsl:when>
               <xsl:otherwise>
-                <xsl:value-of select="."/>
+                <xsl:value-of select="substring-before(., 'T')"/>
               </xsl:otherwise>
             </xsl:choose>
           </datacite:date>
@@ -464,10 +466,10 @@
           <datacite:date dateType="Issued">
             <xsl:choose>
               <xsl:when test="@date">
-                <xsl:value-of select="@date"/>
+                <xsl:value-of select="substring-before(@date, 'T')"/>
               </xsl:when>
               <xsl:otherwise>
-                <xsl:value-of select="."/>
+                <xsl:value-of select="substring-before(., 'T')"/>
               </xsl:otherwise>
             </xsl:choose>
           </datacite:date>
@@ -478,13 +480,15 @@
           <datacite:date dateType="Collected">
             <xsl:choose>
               <xsl:when test="@date">
-                <xsl:value-of select="@date"/>
+                <xsl:value-of select="substring-before(@date, 'T')"/>
               </xsl:when>
               <xsl:when test="@event='start' and following-sibling::ddi:collDate[@event='end']">
-                <xsl:value-of select="@date"/>/<xsl:value-of select="following-sibling::ddi:collDate[@event='end'][1]/@date"/>
+                <xsl:value-of select="substring-before(@date, 'T')"/>
+                <xsl:text>/</xsl:text>
+                <xsl:value-of select="substring-before(following-sibling::ddi:collDate[@event='end'][1]/@date, 'T')"/>
               </xsl:when>
               <xsl:otherwise>
-                <xsl:value-of select="."/>
+                <xsl:value-of select="substring-before(., 'T')"/>
               </xsl:otherwise>
             </xsl:choose>
           </datacite:date>
@@ -493,7 +497,7 @@
         <!-- Version Date -->
         <xsl:for-each select=".//ddi:stdyDscr/ddi:citation/ddi:verStmt/ddi:version[@date]">
           <datacite:date dateType="Updated">
-            <xsl:value-of select="@date"/>
+            <xsl:value-of select="substring-before(@date, 'T')"/>
           </datacite:date>
         </xsl:for-each>
         
@@ -501,7 +505,9 @@
         <xsl:if test=".//ddi:stdyDscr/ddi:stdyInfo/ddi:sumDscr/ddi:timePrd[@event='start'] and 
           .//ddi:stdyDscr/ddi:stdyInfo/ddi:sumDscr/ddi:timePrd[@event='end']">
           <datacite:date dateType="Other" dateInformation="Time Period Covered">
-            <xsl:value-of select=".//ddi:stdyDscr/ddi:stdyInfo/ddi:sumDscr/ddi:timePrd[@event='start']/@date"/>/<xsl:value-of select=".//ddi:stdyDscr/ddi:stdyInfo/ddi:sumDscr/ddi:timePrd[@event='end']/@date"/>
+            <xsl:value-of select="substring-before(.//ddi:stdyDscr/ddi:stdyInfo/ddi:sumDscr/ddi:timePrd[@event='start']/@date, 'T')"/>
+            <xsl:text>/</xsl:text>
+            <xsl:value-of select="substring-before(.//ddi:stdyDscr/ddi:stdyInfo/ddi:sumDscr/ddi:timePrd[@event='end']/@date, 'T')"/>
           </datacite:date>
         </xsl:if>
         
@@ -510,17 +516,19 @@
           <datacite:date dateType="Other" dateInformation="Time Period Covered">
             <xsl:choose>
               <xsl:when test="@date">
-                <xsl:value-of select="@date"/>
+                <xsl:value-of select="substring-before(@date, 'T')"/>
               </xsl:when>
               <xsl:otherwise>
-                <xsl:value-of select="."/>
+                <xsl:value-of select="substring-before(., 'T')"/>
               </xsl:otherwise>
             </xsl:choose>
           </datacite:date>
         </xsl:for-each>
+        
       </datacite:dates>
     </xsl:if>
   </xsl:template>
+
   
   <!-- Template: Language (Optional) -->
   <xsl:template name="language">
