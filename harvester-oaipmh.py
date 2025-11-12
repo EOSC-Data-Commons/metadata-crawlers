@@ -165,7 +165,7 @@ def main():
 
     # start new harvest run
     run_info = start_harvest_run(harvest_url)
-    start_time = datetime.now(timezone.utc).isoformat()
+    start_time = datetime.now(timezone.utc).isoformat(timespec='seconds')
 
     # if there is no response, try closing it
     if run_info is None:
@@ -173,7 +173,7 @@ def main():
         open_run_id = get_open_run_id(harvest_url)  
         if open_run_id:
             print(f"Closing harvest run {open_run_id} with status 'failed'")
-            end_time = datetime.now(timezone.utc).isoformat()
+            end_time = datetime.now(timezone.utc).isoformat(timespec='seconds')
             close_harvest_run_payload = {
                 "id": open_run_id,
                 "success": False,
@@ -288,8 +288,8 @@ def main():
                     failed_events += 1
                     print(f"Record {record_count} failed: {e}")
 
-                if record_count % 10 == 0:
-                    time.sleep(2)
+                if record_count % 100 == 0:
+                    time.sleep(1)
 
         if failed_events == 0:
             harvest_success = True
@@ -300,7 +300,7 @@ def main():
 
     finally:
         print(f"Harvested {record_count} records. Succesfully sent {harvest_events} of them to the warehouse. Failed to upload {failed_events} records.")
-        end_time = datetime.now(timezone.utc).isoformat()
+        end_time = datetime.now(timezone.utc).isoformat(timespec='seconds')
         close_harvest_run_payload = {
             "id": harvest_run_id,
             "success": harvest_success,
