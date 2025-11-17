@@ -215,9 +215,10 @@ def main():
         # harvesting
         with Scythe(harvest_url, timeout=180, max_retries=3, default_retry_after=60) as client:
             if from_date:
-                print(f"Incremental harvest since {from_date}")
+                from_date_secs = datetime.strptime(from_date, '%Y-%m-%dT%H:%M:%S.%f%z').strftime('%Y-%m-%dT%H:%M:%SZ')
+                print(f"Incremental harvest since {from_date_secs}")
                 records = client.list_records(
-                    from_=from_date,
+                    from_=from_date_secs,
                     metadata_prefix=metadata_prefix,
                     set_=set
                 )
