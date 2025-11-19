@@ -190,6 +190,14 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
                 if record_count % 100 == 0:
                     time.sleep(1)
 
+        # Harvest summary
+        logger.info(
+            "Harvest summary: processed=%s records, successfully sent %s to them, failed to send %s records.",
+            record_count,
+            harvest_events,
+            failed_events
+        )
+
         if failed_events == 0:
             return True
         else:
