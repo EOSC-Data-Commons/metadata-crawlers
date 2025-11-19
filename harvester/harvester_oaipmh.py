@@ -9,7 +9,7 @@ from lxml import etree as ET
 from oaipmh_scythe import Scythe
 from typing import Dict, Optional, Any
 
-from .api_client import send_harvest_event
+from .db_api_functions import send_harvest_event
 
 logger = logging.getLogger(__name__)
 

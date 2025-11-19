@@ -4,7 +4,7 @@ import os
 from datetime import datetime, timezone
 
 from .harvester_oaipmh import run_harvester_oaipmh
-from .api_client import start_harvest_run, close_harvest_run, get_open_run_id
+from .db_api_functions import start_harvest_run, close_harvest_run, get_open_run_id
 
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
