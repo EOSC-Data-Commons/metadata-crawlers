@@ -1,10 +1,20 @@
 import argparse
 import logging
+import os
 from datetime import datetime, timezone
+
 from .harvester_oaipmh import run_harvester_oaipmh
 from .api_client import start_harvest_run, close_harvest_run, get_open_run_id
 
+
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+logging.basicConfig(
+    level=LOG_LEVEL,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+)
 logger = logging.getLogger(__name__)
+
+API_BASE_URL = os.getenv("API_BASE_URL")
 
 def main():
     parser = argparse.ArgumentParser(description="Metadata Harvester")
