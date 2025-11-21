@@ -190,9 +190,8 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
                 if record_count % 100 == 0:
                     time.sleep(1)
 
-        # Harvest summary
         logger.info(
-            "Harvest summary: processed=%s records, successfully sent %s to them, failed to send %s records.",
+            "Harvest summary: processed %s records, successfully sent %s of them to the warehouse, failed to send %s records.",
             record_count,
             harvest_events,
             failed_events
@@ -205,4 +204,10 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
 
     except Exception:
         logger.exception("Unexpected error in run_harvester_oaipmh")
+        logger.info(
+            "Harvest summary: processed %s records, successfully sent %s of them to the warehouse, failed to send %s records.",
+            record_count,
+            harvest_events,
+            failed_events
+        )
         return False

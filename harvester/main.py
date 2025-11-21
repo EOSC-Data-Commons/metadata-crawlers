@@ -28,21 +28,29 @@ def main():
 
     try:
         run_info = start_harvest_run(harvest_url)
-        # if there is no response, try closing it
+        # if there is no response, try to find an open harvest run and close it
         if run_info is None:
             logger.error("Failed to start harvest run, checking for existing open run...")
             open_run_id = get_open_run_id(harvest_url)  
             if open_run_id:
+                # if there is an open run for that endpoint, close it as failed and start a new one
                 logger.warning("Closing existing open harvest run %s as failed", open_run_id)
                 end_time = datetime.now(timezone.utc).isoformat(timespec='seconds')
                 close_harvest_run_payload = {
                     "id": open_run_id,
                     "success": False,
-                    "started_at": start_time,
+                    "started_at": start_time,  # this will overwrite the started_at date that is already in the DB, but API requires this field
                     "completed_at": end_time
                     }
                 close_harvest_run(API_BASE_URL, close_harvest_run_payload)
-            return 1
+                logger.info("Retry to start a new harvest run...")
+                run_info = start_harvest_run(harvest_url)
+                if run_info is None:
+                    logger.error("Cannot start a new harvest run. Quitting harvester.")
+                    return 1
+            else:
+                logger.error("No open run found. Quitting harvester.")
+                return 1
 
         harvest_run_id = run_info["id"]
         config = run_info.get("endpoint_config")
@@ -63,13 +71,14 @@ def main():
 
     
     finally:
-        end_time = datetime.now(timezone.utc).isoformat(timespec='seconds')
-        close_harvest_run_payload = {
-            "id": harvest_run_id,
-            "success": harvest_success,
-            "started_at": start_time,
-            "completed_at": end_time,
-        }
-        close_harvest_run(API_BASE_URL, close_harvest_run_payload)
+        if harvest_run_id:
+            end_time = datetime.now(timezone.utc).isoformat(timespec='seconds')
+            close_harvest_run_payload = {
+                "id": harvest_run_id,
+                "success": harvest_success,
+                "started_at": start_time,
+                "completed_at": end_time,
+            }
+            close_harvest_run(API_BASE_URL, close_harvest_run_payload)
 
     return 0 if harvest_success else 1
