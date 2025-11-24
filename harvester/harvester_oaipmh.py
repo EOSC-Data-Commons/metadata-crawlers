@@ -1,7 +1,6 @@
 import json
 import time
 import logging
-import traceback
 import os
 import requests
 from datetime import datetime, timezone
@@ -173,7 +172,7 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
                         "raw_metadata": raw_metadata,
                         "additional_metadata": additional_metadata,
                         "harvest_url": harvest_url,
-                        "repo_code": code,                          # do we need this?
+                        "repo_code": code,
                         "harvest_run_id": harvest_run_id,
                         "is_deleted": is_deleted
                     }
@@ -187,8 +186,6 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
                     failed_events += 1
                     print(f"Record %s failed: %s", record_count, e)
 
-                if record_count % 100 == 0:
-                    time.sleep(1)
 
         logger.info(
             "Harvest summary: processed %s records, successfully sent %s of them to the warehouse, failed to send %s records.",

@@ -5,18 +5,16 @@ from datetime import datetime, timezone
 
 from .harvester_oaipmh import run_harvester_oaipmh
 from .db_api_functions import start_harvest_run, close_harvest_run, get_open_run_id
+from .logging import setup_logging
 
 
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
-logging.basicConfig(
-    level=LOG_LEVEL,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-)
 logger = logging.getLogger(__name__)
 
 API_BASE_URL = os.getenv("API_BASE_URL")
 
 def main():
+    setup_logging()
+
     parser = argparse.ArgumentParser(description="Metadata Harvester")
     parser.add_argument("harvest_url", help="Repository harvesting endpoint")
     args = parser.parse_args()
