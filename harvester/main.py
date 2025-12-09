@@ -10,8 +10,6 @@ from .logging import setup_logging
 
 logger = logging.getLogger(__name__)
 
-API_BASE_URL = os.getenv("API_BASE_URL")
-
 def main():
     setup_logging()
 
@@ -40,7 +38,7 @@ def main():
                     "started_at": start_time,  # this will overwrite the started_at date that is already in the DB, but API requires this field
                     "completed_at": end_time
                     }
-                close_harvest_run(API_BASE_URL, close_harvest_run_payload)
+                close_harvest_run(close_harvest_run_payload)
                 logger.info("Retry to start a new harvest run...")
                 run_info = start_harvest_run(harvest_url)
                 if run_info is None:
@@ -77,6 +75,6 @@ def main():
                 "started_at": start_time,
                 "completed_at": end_time,
             }
-            close_harvest_run(API_BASE_URL, close_harvest_run_payload)
+            close_harvest_run(close_harvest_run_payload)
 
     return 0 if harvest_success else 1

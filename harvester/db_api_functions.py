@@ -5,7 +5,11 @@ from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 
-API_BASE_URL = os.getenv("API_BASE_URL")
+WAREHOUSE_API_URL = os.getenv("WAREHOUSE_API_URL")
+# warehouse API routes:
+HARVEST_RUN_URL = f"{WAREHOUSE_API_URL}/harvest_run"
+HARVEST_EVENT_URL = f"{WAREHOUSE_API_URL}/harvest_event"
+
 
 def start_harvest_run(harvest_url: str, timeout: int = 30) -> Optional[Dict[str, Any]]:
     """
@@ -15,10 +19,9 @@ def start_harvest_run(harvest_url: str, timeout: int = 30) -> Optional[Dict[str,
     :param timeout: Request timeout in seconds
     :return: JSON response (dict) containing 'harvest_run_id', optionally 'last_harvest_date', and endpoint config; returns None on error.
     """
-    url = f"{API_BASE_URL}/harvest_run"
     payload = {"harvest_url": harvest_url}
     try:
-        response = requests.post(url, json=payload, timeout=timeout)
+        response = requests.post(HARVEST_RUN_URL, json=payload, timeout=timeout)
         response.raise_for_status()
         run_info = response.json()
         logger.info("Started harvest run id=%s.", run_info.get("id"))
@@ -35,10 +38,9 @@ def get_open_run_id(harvest_url: str, timeout: int = 30) -> Optional[Dict]:
     :param timeout: Request timeout in seconds
     :return: JSON response (dict) containing the ID of a harvest run and its status, or None if not found or failed
     """
-    url = f"{API_BASE_URL}/harvest_run"
     params = {"harvest_url": harvest_url}
     try:
-        response = requests.get(url, params=params, timeout=timeout)
+        response = requests.get(HARVEST_RUN_URL, params=params, timeout=timeout)
         response.raise_for_status()
 
         response = response.json()
@@ -51,17 +53,15 @@ def get_open_run_id(harvest_url: str, timeout: int = 30) -> Optional[Dict]:
         logger.error("Error checking for open harvest run for %s: %s", harvest_url, e)
         return None
 
-def close_harvest_run(api_base_url: str, payload: Dict) -> None:
+def close_harvest_run(payload: Dict) -> None:
     """
     PUT /harvest_run to close the harvest run.
 
-    :param api_base_url: API endpoint
     :param payload: payload for API post request to close the harvest run
     """
-    url = f"{api_base_url}/harvest_run"
     run_id = payload.get("id")
     try:
-        response = requests.put(url, json=payload, timeout=30)
+        response = requests.put(HARVEST_RUN_URL, json=payload, timeout=30)
         response.raise_for_status()
         logger.info(
             "Closed harvest run %s — started %s, finished %s",
@@ -76,17 +76,15 @@ def close_harvest_run(api_base_url: str, payload: Dict) -> None:
             logger.error("Failed to close harvest run %s: %s", run_id, e)
 
 
-def send_harvest_event(api_base_url: str, event_payload: Dict) -> bool:
+def send_harvest_event(event_payload: Dict) -> bool:
     """
     Send event_payload to API.
 
-    :param api_base_url: API endpoint
     :param event_payload: dictionary containing event data for harvest_event route
     :return logical: True if the payload has been sent to API successfully 
     """
-    url = f"{api_base_url}/harvest_event"
     try:
-        response = requests.post(url, json=event_payload, timeout=60)
+        response = requests.post(HARVEST_EVENT_URL, json=event_payload, timeout=60)
         response.raise_for_status()
         return True
     except requests.exceptions.RequestException as e:

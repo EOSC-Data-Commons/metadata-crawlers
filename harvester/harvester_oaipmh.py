@@ -13,7 +13,6 @@ from .db_api_functions import send_harvest_event
 logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-API_BASE_URL = os.getenv("API_BASE_URL")
 
 
 def fetch_dataverse_json(doi: str, base_url: str, exporter: str) -> Optional[str]:
@@ -177,7 +176,7 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
                         "is_deleted": is_deleted
                     }
                     
-                    if send_harvest_event(API_BASE_URL, event_payload):
+                    if send_harvest_event(event_payload):
                         harvest_events += 1
                     else:
                         failed_events += 1
