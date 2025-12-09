@@ -44,8 +44,8 @@ def get_open_run_id(harvest_url: str, timeout: int = 30) -> Optional[Dict]:
         response.raise_for_status()
 
         response = response.json()
-        if response["status"] == "open":
-            return response["id"]
+        if response and response.get("status") == "open":
+            return response.get("id")
         else:
             return None
 
