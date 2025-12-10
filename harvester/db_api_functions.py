@@ -5,13 +5,14 @@ from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 
+TIMEOUT = int(os.getenv("WAREHOUSE_API_TIMEOUT", 30))
 WAREHOUSE_API_URL = os.getenv("WAREHOUSE_API_URL")
 # warehouse API routes:
 HARVEST_RUN_URL = f"{WAREHOUSE_API_URL}/harvest_run"
 HARVEST_EVENT_URL = f"{WAREHOUSE_API_URL}/harvest_event"
 
 
-def start_harvest_run(harvest_url: str, timeout: int = 30) -> Optional[Dict[str, Any]]:
+def start_harvest_run(harvest_url: str) -> Optional[Dict[str, Any]]:
     """
     POST /harvest_run to create a new harvest run. 
     
@@ -21,7 +22,7 @@ def start_harvest_run(harvest_url: str, timeout: int = 30) -> Optional[Dict[str,
     """
     payload = {"harvest_url": harvest_url}
     try:
-        response = requests.post(HARVEST_RUN_URL, json=payload, timeout=timeout)
+        response = requests.post(HARVEST_RUN_URL, json=payload, timeout=TIMEOUT)
         response.raise_for_status()
         run_info = response.json()
         logger.info("Started harvest run id=%s.", run_info.get("id"))
@@ -30,7 +31,7 @@ def start_harvest_run(harvest_url: str, timeout: int = 30) -> Optional[Dict[str,
         logger.error("Failed to start harvest run for %s: %s", harvest_url, e)
         return None
 
-def get_open_run_id(harvest_url: str, timeout: int = 30) -> Optional[Dict]:
+def get_open_run_id(harvest_url: str) -> Optional[Dict]:
     """
     GET /harvest_run to fetch an open harvest run ID if it exists.
 
@@ -40,7 +41,7 @@ def get_open_run_id(harvest_url: str, timeout: int = 30) -> Optional[Dict]:
     """
     params = {"harvest_url": harvest_url}
     try:
-        response = requests.get(HARVEST_RUN_URL, params=params, timeout=timeout)
+        response = requests.get(HARVEST_RUN_URL, params=params, timeout=TIMEOUT)
         response.raise_for_status()
 
         response = response.json()
@@ -61,7 +62,7 @@ def close_harvest_run(payload: Dict) -> None:
     """
     run_id = payload.get("id")
     try:
-        response = requests.put(HARVEST_RUN_URL, json=payload, timeout=30)
+        response = requests.put(HARVEST_RUN_URL, json=payload, timeout=TIMEOUT)
         response.raise_for_status()
         logger.info(
             "Closed harvest run %s — started %s, finished %s",
@@ -84,7 +85,7 @@ def send_harvest_event(event_payload: Dict) -> bool:
     :return logical: True if the payload has been sent to API successfully 
     """
     try:
-        response = requests.post(HARVEST_EVENT_URL, json=event_payload, timeout=60)
+        response = requests.post(HARVEST_EVENT_URL, json=event_payload, timeout=TIMEOUT)
         response.raise_for_status()
         return True
     except requests.exceptions.RequestException as e:
