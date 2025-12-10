@@ -195,7 +195,7 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
 
                 except Exception as e:
                     failed_events += 1
-                    print(f"Record %s failed: %s", record_count, e)
+                    logger.error("Record %s failed: %s", record_count, e)
 
 
         logger.info(
