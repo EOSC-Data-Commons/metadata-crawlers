@@ -5,7 +5,7 @@ import os
 from harvester.settings import settings
 
 def setup_logging():
-    log_dir = settings.LOG_DIR
+    log_dir = Path(settings.LOG_DIR)
     log_dir.mkdir(parents=True, exist_ok=True)
 
     log_file = log_dir / "harvester.log"

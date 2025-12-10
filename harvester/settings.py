@@ -1,5 +1,6 @@
 from typing import Literal
-from pydantic import BaseSettings, AnyHttpUrl
+from pydantic_settings import BaseSettings
+from pydantic import AnyHttpUrl
 import os
 
 Environment = Literal["production", "staging", "dev", "local"]
