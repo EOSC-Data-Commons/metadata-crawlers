@@ -22,7 +22,7 @@ def main():
     start_time = datetime.now(timezone.utc).isoformat(timespec='seconds')
     harvest_run_id = None
     harvest_success = False
-    
+
     try:
         run_info = start_harvest_run(harvest_url)
         # if there is no response, try to find an open harvest run and close it

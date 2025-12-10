@@ -2,17 +2,18 @@ import os
 import httpx
 import logging
 from typing import Optional, Dict, Any
+from harvester.settings import settings
 
 logger = logging.getLogger(__name__)
 
-TIMEOUT = int(os.getenv("WAREHOUSE_API_TIMEOUT", 30))
-WAREHOUSE_API_URL = os.getenv("WAREHOUSE_API_URL")
+timeout = settings.WAREHOUSE_API_TIMEOUT
+base_url = settings.WAREHOUSE_API_URL
 # warehouse API routes:
-HARVEST_RUN_URL = f"{WAREHOUSE_API_URL}/harvest_run"
-HARVEST_EVENT_URL = f"{WAREHOUSE_API_URL}/harvest_event"
+HARVEST_RUN_URL = f"{base_url}/harvest_run"
+HARVEST_EVENT_URL = f"{base_url}/harvest_event"
 
 # shared HTTP client for warehouse API
-_WAREHOUSE_CLIENT = httpx.Client(timeout=TIMEOUT)
+_WAREHOUSE_CLIENT = httpx.Client(timeout=timeout)
 
 
 def start_harvest_run(harvest_url: str) -> Optional[Dict[str, Any]]:

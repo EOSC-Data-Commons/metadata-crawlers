@@ -2,10 +2,10 @@ import json
 import logging
 import os
 import httpx
-from datetime import datetime, timezone
+from datetime import datetime
 from lxml import etree as ET
 from oaipmh_scythe import Scythe
-from typing import Dict, Optional, Any
+from typing import Optional
 
 from .db_api_functions import send_harvest_event
 

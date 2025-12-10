@@ -2,14 +2,15 @@ import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 import os
+from harvester.settings import settings
 
 def setup_logging():
-    log_dir = Path(os.getenv("LOG_DIR", "/app/logs"))
+    log_dir = settings.LOG_DIR
     log_dir.mkdir(parents=True, exist_ok=True)
 
     log_file = log_dir / "harvester.log"
 
-    log_level = os.getenv("LOG_LEVEL", "INFO")
+    log_level = settings.LOG_LEVEL
 
     formatter = logging.Formatter(
         "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
