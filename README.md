@@ -23,23 +23,44 @@ The package consists of the following components:
 - harvester_oaipmh.py - harvesting module for repositories that expose metadata via OAI-PMH
 - ddi_to_datacite.xsl - XSLT stylesheet that transforms metadata format from DDI to DataCite format
 - logging.py - logging config function
+- settings.py - handles settings for different environments
 
 ## Requirements
 - [Python](https://www.python.org/downloads/) >= 3.10
 - Dependencies listed in requirements.txt 
 
+## Environment configuration
+The harvester uses Pydantic settings for all configuration.
+All configuration values come from:
+
+1. Docker environment variables (if running inside Docker)
+2. A local .env file (if running on your machine)
+3. Internal defaults in settings.py
+
+You must create a .env file before running the harvester locally.
+
+To do this:
+copy the example file ```cp .env.example .env```
+and fill in the required values:
+```
+ENVIRONMENT=local
+WAREHOUSE_API_URL=http://localhost:8000
+```
+- ```ENVIRONMENT``` chooses a configuration profile (local, dev, staging, production)
+- ```WAREHOUSE_API_URL``` must point to the Warehouse API instance the harvester will send results to
+For Docker execution, the ```WAREHOUSE_API_URL``` can be set in ```docker-compose.yml```.
+
 ## Running Locally
 To run the harvester directly on your machine:
+1. Ensure ```.env``` exists in the project root and the required values have been filled
+2. Run the following:
 ```
 python -m harvester {repository URL}
 ```
-Replace {repository URL} with the actual OAI-PMH base URL of the repository you want to harvest.
-
-The harvester uses environment variables for configuration, including the base URL of the database API.
-These variables can be provided via a .env file in the project root or manually exported before execution.
+Replace ```{repository URL}``` with the actual OAI-PMH base URL of the repository you want to harvest.
 
 ## Docker Usage
-The repository includes a Dockerfile and a docker-compose.yaml.
+The repository includes a ```Dockerfile``` and a ```docker-compose.yml```.
 These can be used to build and run the harvester in an isolated environment.
 
 Build the image:
@@ -51,6 +72,8 @@ Run the harvester once:
 docker compose run --rm harvester {repository URL}
 ```
 
+By default, ```.env``` is loaded in ```docker-compose.yml```, but you can replace that with appropriate values for ```ENVIRONMENT``` and ```WAREHOUSE_API_URL```.
+
 ## Logs and Output
 The harvester does not write harvested metadata to disk.
 Instead, all records and harvest run status updates are sent directly to the database API.
@@ -61,7 +84,7 @@ Logs include:
 - Errors indicating failed requests, invalid responses, or failed harvest runs
 
 Logs are saved to:
-``` /app/logs/harvester.log ```
+``` logs/harvester.log ```
 
 When running in Docker, this log directory can be mounted as a volume to persist logs outside the container.
 
