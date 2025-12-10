@@ -1,5 +1,5 @@
 import os
-import requests
+import httpx
 import logging
 from typing import Optional, Dict, Any
 
@@ -11,23 +11,25 @@ WAREHOUSE_API_URL = os.getenv("WAREHOUSE_API_URL")
 HARVEST_RUN_URL = f"{WAREHOUSE_API_URL}/harvest_run"
 HARVEST_EVENT_URL = f"{WAREHOUSE_API_URL}/harvest_event"
 
+# shared HTTP client for warehouse API
+_WAREHOUSE_CLIENT = httpx.Client(timeout=TIMEOUT)
+
 
 def start_harvest_run(harvest_url: str) -> Optional[Dict[str, Any]]:
     """
     POST /harvest_run to create a new harvest run. 
     
     :param harvest_url: endpoint for harvesting
-    :param timeout: Request timeout in seconds
     :return: JSON response (dict) containing 'harvest_run_id', optionally 'last_harvest_date', and endpoint config; returns None on error.
     """
     payload = {"harvest_url": harvest_url}
     try:
-        response = requests.post(HARVEST_RUN_URL, json=payload, timeout=TIMEOUT)
+        response = _WAREHOUSE_CLIENT.post(HARVEST_RUN_URL, json=payload)
         response.raise_for_status()
         run_info = response.json()
         logger.info("Started harvest run id=%s.", run_info.get("id"))
         return run_info
-    except requests.RequestException as e:
+    except httpx.RequestError as e:
         logger.error("Failed to start harvest run for %s: %s", harvest_url, e)
         return None
 
@@ -36,12 +38,11 @@ def get_open_run_id(harvest_url: str) -> Optional[Dict]:
     GET /harvest_run to fetch an open harvest run ID if it exists.
 
     :param harvest_url: endpoint for harvesting
-    :param timeout: Request timeout in seconds
     :return: JSON response (dict) containing the ID of a harvest run and its status, or None if not found or failed
     """
     params = {"harvest_url": harvest_url}
     try:
-        response = requests.get(HARVEST_RUN_URL, params=params, timeout=TIMEOUT)
+        response = _WAREHOUSE_CLIENT.get(HARVEST_RUN_URL, params=params)
         response.raise_for_status()
 
         response = response.json()
@@ -49,8 +50,7 @@ def get_open_run_id(harvest_url: str) -> Optional[Dict]:
             return response.get("id")
         else:
             return None
-
-    except requests.RequestException as e:
+    except httpx.RequestError as e:
         logger.error("Error checking for open harvest run for %s: %s", harvest_url, e)
         return None
 
@@ -62,7 +62,7 @@ def close_harvest_run(payload: Dict) -> None:
     """
     run_id = payload.get("id")
     try:
-        response = requests.put(HARVEST_RUN_URL, json=payload, timeout=TIMEOUT)
+        response = _WAREHOUSE_CLIENT.put(HARVEST_RUN_URL, json=payload)
         response.raise_for_status()
         logger.info(
             "Closed harvest run %s — started %s, finished %s",
@@ -70,11 +70,8 @@ def close_harvest_run(payload: Dict) -> None:
             payload.get("started_at"),
             payload.get("completed_at"),
         )
-    except requests.RequestException as e:
-        if e.response is not None:
-            logger.error("Failed to close harvest run %s: API error %s %s", run_id, e.response.status_code, e.response.text)
-        else:
-            logger.error("Failed to close harvest run %s: %s", run_id, e)
+    except httpx.RequestError as e:
+        logger.error("Failed to close harvest run %s: %s", run_id, e)
 
 
 def send_harvest_event(event_payload: Dict) -> bool:
@@ -85,9 +82,16 @@ def send_harvest_event(event_payload: Dict) -> bool:
     :return logical: True if the payload has been sent to API successfully 
     """
     try:
-        response = requests.post(HARVEST_EVENT_URL, json=event_payload, timeout=TIMEOUT)
+        response = _WAREHOUSE_CLIENT.post(HARVEST_EVENT_URL, json=event_payload)
         response.raise_for_status()
         return True
-    except requests.exceptions.RequestException as e:
+    except httpx.RequestError as e:
         logger.error("Failed to send record %s to API: %s", event_payload.get("record_identifier"), e)
         return False
+
+
+def close_WAREHOUSE_CLIENT():
+    try:
+        _WAREHOUSE_CLIENT.close()
+    except Exception:
+        pass

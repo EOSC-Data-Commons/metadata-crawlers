@@ -1,10 +1,9 @@
 import argparse
 import logging
-import os
 from datetime import datetime, timezone
 
-from .harvester_oaipmh import run_harvester_oaipmh
-from .db_api_functions import start_harvest_run, close_harvest_run, get_open_run_id
+from .harvester_oaipmh import run_harvester_oaipmh, close_DATAVERSE_CLIENT
+from .db_api_functions import start_harvest_run, close_harvest_run, get_open_run_id, close_WAREHOUSE_CLIENT
 from .logging import setup_logging
 
 
@@ -76,5 +75,7 @@ def main():
                 "completed_at": end_time,
             }
             close_harvest_run(close_harvest_run_payload)
+        close_DATAVERSE_CLIENT()
+        close_WAREHOUSE_CLIENT()
 
     return 0 if harvest_success else 1

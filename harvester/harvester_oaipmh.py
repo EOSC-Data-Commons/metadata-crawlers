@@ -1,8 +1,7 @@
 import json
-import time
 import logging
 import os
-import requests
+import httpx
 from datetime import datetime, timezone
 from lxml import etree as ET
 from oaipmh_scythe import Scythe
@@ -14,6 +13,15 @@ logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# shared http client for Dataverse requests
+_DATAVERSE_CLIENT = httpx.Client(timeout=30)
+
+
+def close_DATAVERSE_CLIENT():
+    try:
+        _DATAVERSE_CLIENT.close()
+    except Exception:
+        pass
 
 def fetch_dataverse_json(doi: str, base_url: str, exporter: str) -> Optional[str]:
     """
@@ -26,14 +34,18 @@ def fetch_dataverse_json(doi: str, base_url: str, exporter: str) -> Optional[str
     """
     params = {"exporter": exporter, "persistentId": doi}
     try:
-        response = requests.get(base_url, params=params, timeout=30)
-        if response.status_code == 200:
-            return json.dumps(response.json(), indent=2)
-        else:
-            logger.warning("Failed to fetch Dataverse JSON for %s: %s", doi, response.status_code)
-            return None
-    except Exception as e:
-        logger.exception("Dataverse JSON fetch error for %s", doi)
+        response = _DATAVERSE_CLIENT.get(base_url, params=params)
+        response.raise_for_status()
+        return json.dumps(response.json(), indent=2)
+    except httpx.HTTPStatusError as e:
+        logger.warning(
+            "Failed to fetch Dataverse JSON for %s: HTTP %s",
+            doi,
+            e.response.status_code if e.response else "N/A",
+        )
+        return None
+    except httpx.RequestError as e:
+        logger.error("Network error fetching Dataverse JSON for %s: %s", doi, e)
         return None
 
 
