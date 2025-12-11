@@ -17,7 +17,7 @@ class BaseAppSettings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
-
+        url_preserve_empty_path = True
 
 class ProductionSettings(BaseAppSettings):
     """Production settings"""
