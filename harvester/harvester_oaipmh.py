@@ -98,6 +98,10 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
     """
 
     try:
+        record_count = 0
+        harvest_events = 0
+        failed_events = 0
+        
         # extract run info and harvest params
         harvest_run_id = run_info.get("id")
         from_date = run_info.get("from_date")
@@ -139,9 +143,6 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
                     ignore_deleted=True
                 )
 
-            record_count = 0
-            harvest_events = 0
-            failed_events = 0
 
             for record in records:
                 record_count += 1
