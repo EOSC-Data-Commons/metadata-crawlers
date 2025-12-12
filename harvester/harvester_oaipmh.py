@@ -17,10 +17,11 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 _DATAVERSE_CLIENT = httpx.Client(timeout=30)
 
 
-def close_DATAVERSE_CLIENT():
+def close_dataverse_client():
     try:
         _DATAVERSE_CLIENT.close()
     except Exception:
+        logger.warning("Failed to close Dataverse client")
         pass
 
 def fetch_dataverse_json(doi: str, base_url: str, exporter: str) -> Optional[str]:

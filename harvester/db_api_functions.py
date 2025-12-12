@@ -91,8 +91,9 @@ def send_harvest_event(event_payload: Dict) -> bool:
         return False
 
 
-def close_WAREHOUSE_CLIENT():
+def close_warehouse_client():
     try:
         _WAREHOUSE_CLIENT.close()
     except Exception:
+        logger.warning("Failed to close warehouse client")
         pass
