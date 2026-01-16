@@ -92,8 +92,10 @@ When running in Docker, this log directory can be mounted as a volume to persist
 Future versions of this package will support additional crawling protocols.
 
 ## License
+This project is licensed under the Apache License 2.0.
+See the LICENSE file for details.
+
 This project uses the [oaipmh-scythe](https://github.com/afuetterer/oaipmh-scythe) Python client,  
 which is distributed under the BSD license.
-
 The BSD license is a permissive open source license that allows use, modification, and distribution.  
 For full license details, see the [oaipmh-scythe license](https://github.com/afuetterer/oaipmh-scythe/blob/master/LICENSE).
