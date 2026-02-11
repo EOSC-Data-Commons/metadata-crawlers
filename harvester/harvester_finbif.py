@@ -1,37 +1,43 @@
 import httpx
-from httpx import Limits, Timeout, Client
 from httpx_retries import Retry, RetryTransport
+import asyncio
 import logging
 import json
 from typing import List, Dict, Generator
+import os
+from harvester.settings import settings
+
+ACCESS_TOKEN = os.getenv("FINBIF_ACCESS_TOKEN")
+#ACCESS_TOKEN = settings.FINBIF_ACCESS_TOKEN
 
 logger = logging.getLogger(__name__)
 
 # Base URL for the FinBIF API
 API_BASE = "https://api.laji.fi"
+COLLECTIONS_PAGE_SIZE = 100
+SUBCOLLECTIONS_PAGE_SIZE = 100
+MAX_CONCURRENT_REQUESTS = 10
 
 retry_strategy = Retry(
     total=8,  # Number of retries
     backoff_factor=0.5,  # Delay between retries (exponential backoff)
 )
-retry_transport = RetryTransport(retry=retry_strategy)
-_FINBIF_CLIENT = Client(
-    transport=retry_transport,
-    timeout=Timeout(120)
+_FINBIF_CLIENT = httpx.Client(
+    transport=RetryTransport(retry=retry_strategy),
+    timeout=httpx.Timeout(120),
+    headers={"Authorization": f"Bearer {ACCESS_TOKEN}"}
 )
 
-def fetch_results(api_url: str, params: Dict) -> Generator[Dict, None, None]:
+def fetch_collections() -> Generator[Dict, None, None]:
     """
-    Fetch all collections or subcollections from the FinBIF API, iterating through pages.
+    Fetch all collections from the FinBIF API.
 
-    :param api_url: The base URL for the API endpoint.
-    :param params: Query parameters for the API request.
-    :yield: A (sub)collection record as a dictionary.
+    :yield: A collection record as a dictionary.
     """
     page = 1
     while True:
-        params["page"] = page
-        response = _FINBIF_CLIENT.get(api_url, params=params)
+        params = {"lang": "en", "page": page, "pageSize": COLLECTIONS_PAGE_SIZE}
+        response = _FINBIF_CLIENT.get(f"{API_BASE}/collections", params=params)
         response.raise_for_status()
         data = response.json()
 
@@ -40,22 +46,9 @@ def fetch_results(api_url: str, params: Dict) -> Generator[Dict, None, None]:
             yield result
 
         # Check if there are more pages
-        if not data.get("nextPage"):
+        if "nextPage" not in data or not data["results"]:
             break
         page += 1
-
-def fetch_all_collections() -> List[Dict]:
-    """
-    Fetch all collections from the FinBIF API.
-
-    :return: A list of all collections as dictionaries.
-    """
-    api_url = f"{API_BASE}/collections"
-    params = {
-        "lang": "en",
-        "pageSize": 100
-    }
-    return list(fetch_results(api_url, params))
 
 def process_collections(collections: List[Dict]) -> List[Dict]:
     """
@@ -87,23 +80,63 @@ def process_collections(collections: List[Dict]) -> List[Dict]:
             })
     return filtered_collections
 
-def fetch_subcollections(parent_id: str) -> List[Dict]:
+async def fetch_subcollection_page(client: httpx.AsyncClient, collection_id: str, page: int) -> dict:
     """
-    Fetch subcollections for a given parent collection ID.
+    Fetch a single page of subcollections for a given collection.
 
-    :param parent_id: The ID of the parent collection.
-    :return: A list of subcollections as dictionaries.
+    :param client: The AsyncClient instance.
+    :param collection_id: The ID of the collection.
+    :param page: The page number to fetch.
+    :return: The JSON response as a dictionary.
     """
-    api_url = f"{API_BASE}/warehouse/query/unit/aggregate"
+    url = f"{API_BASE}/warehouse/query/unit/aggregate"
     params = {
         "aggregateBy": "gathering.conversions.year,gathering.municipality,unit.linkings.originalTaxon.scientificName",
         "onlyCount": False,
-        "pageSize": 100,
-        "collectionId": parent_id
+        "pageSize": SUBCOLLECTIONS_PAGE_SIZE,
+        "collectionId": collection_id,
+        "page": page
     }
-    results = list(fetch_results(api_url, params))
-    print(f"Fetched {len(results)} subcollections for parent ID: {parent_id}")
-    return results
+    response = await client.get(url, params=params)
+    response.raise_for_status()
+    return response.json()
+
+
+async def fetch_all_subcollections(collection_id: str) -> List[Dict]:
+    """
+    Fetch all subcollections for a given collection, using parallel requests.
+
+    :param collection_id: The ID of the collection.
+    :return: A list of all subcollections.
+    """
+    async with httpx.AsyncClient(
+        headers={"Authorization": f"Bearer {ACCESS_TOKEN}"},
+        transport=RetryTransport(retry_strategy=retry_strategy),
+        timeout=httpx.Timeout(120)
+    ) as client:
+        # Fetch the first page to determine the total number of pages
+        first_page = await fetch_subcollection_page(client, collection_id, page=1)
+        total_pages = first_page.get("lastPage", 1)
+        subcollections = first_page.get("results", [])
+
+        # Semaphore to limit the number of concurrent requests
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
+
+        async def fetch_with_semaphore(page):
+            async with semaphore:
+                page_data = await fetch_subcollection_page(client, collection_id, page)
+                return page_data.get("results", [])
+
+        # Create tasks for the remaining pages
+        tasks = [fetch_with_semaphore(page) for page in range(2, total_pages + 1)]
+        results = await asyncio.gather(*tasks)
+
+        # Combine results from all pages
+        for page_results in results:
+            subcollections.extend(page_results)
+
+        return subcollections
+
 
 def create_records(collection: Dict) -> List[Dict]:
     """
@@ -114,7 +147,7 @@ def create_records(collection: Dict) -> List[Dict]:
     """
     parent_id = collection["id"]
     print(f"Fetching subcollections for collection ID: {parent_id}")
-    subcollections = fetch_subcollections(parent_id)
+    subcollections = fetch_all_subcollections(parent_id)
     records = []
 
     for subcollection in subcollections:
@@ -146,7 +179,8 @@ def main():
     )
     try:
         # Fetch all collections
-        all_collections = fetch_all_collections()
+        all_collections = List(fetch_collections())
+        logger.info("Fetched %d collections.", len(all_collections))
         # Process collections
         filtered_collections = process_collections(all_collections)
         # Log the number of collections without children
