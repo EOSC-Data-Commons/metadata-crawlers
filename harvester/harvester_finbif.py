@@ -5,8 +5,10 @@ import logging
 import json
 from typing import List, Dict, Generator
 import os
-from harvester.settings import settings
+#from harvester.settings import settings
 
+from dotenv import load_dotenv
+load_dotenv()
 ACCESS_TOKEN = os.getenv("FINBIF_ACCESS_TOKEN")
 #ACCESS_TOKEN = settings.FINBIF_ACCESS_TOKEN
 
@@ -27,6 +29,21 @@ _FINBIF_CLIENT = httpx.Client(
     timeout=httpx.Timeout(120),
     headers={"Authorization": f"Bearer {ACCESS_TOKEN}"}
 )
+_ASYNC_FINBIF_CLIENT = httpx.AsyncClient(
+    headers={"Authorization": f"Bearer {ACCESS_TOKEN}"},
+    transport=RetryTransport(retry=retry_strategy),
+    timeout=httpx.Timeout(120),
+)
+
+async def shutdown_async_client():
+    """
+    Shutdown the shared async client.
+    """
+    try:
+        await _ASYNC_FINBIF_CLIENT.aclose()
+        logger.info("Async client closed successfully.")
+    except Exception as e:
+        logger.error("Error closing async client: %s", e)
 
 def fetch_collections() -> Generator[Dict, None, None]:
     """
@@ -80,7 +97,7 @@ def process_collections(collections: List[Dict]) -> List[Dict]:
             })
     return filtered_collections
 
-async def fetch_subcollection_page(client: httpx.AsyncClient, collection_id: str, page: int) -> dict:
+async def fetch_subcollection_page(collection_id: str, page: int) -> dict:
     """
     Fetch a single page of subcollections for a given collection.
 
@@ -97,7 +114,7 @@ async def fetch_subcollection_page(client: httpx.AsyncClient, collection_id: str
         "collectionId": collection_id,
         "page": page
     }
-    response = await client.get(url, params=params)
+    response = await _ASYNC_FINBIF_CLIENT.get(url, params=params)
     response.raise_for_status()
     return response.json()
 
@@ -109,36 +126,33 @@ async def fetch_all_subcollections(collection_id: str) -> List[Dict]:
     :param collection_id: The ID of the collection.
     :return: A list of all subcollections.
     """
-    async with httpx.AsyncClient(
-        headers={"Authorization": f"Bearer {ACCESS_TOKEN}"},
-        transport=RetryTransport(retry_strategy=retry_strategy),
-        timeout=httpx.Timeout(120)
-    ) as client:
-        # Fetch the first page to determine the total number of pages
-        first_page = await fetch_subcollection_page(client, collection_id, page=1)
-        total_pages = first_page.get("lastPage", 1)
-        subcollections = first_page.get("results", [])
+    # Fetch the first page to determine the total number of pages
+    first_page = await fetch_subcollection_page(collection_id, page=1)
+    total_pages = first_page.get("lastPage", 1)
+    logger.info("Collection ID %s has %d pages of subcollections.", collection_id, total_pages)
+    subcollections = first_page.get("results", [])
 
-        # Semaphore to limit the number of concurrent requests
-        semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
+    # Semaphore to limit the number of concurrent requests
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
-        async def fetch_with_semaphore(page):
-            async with semaphore:
-                page_data = await fetch_subcollection_page(client, collection_id, page)
-                return page_data.get("results", [])
+    async def fetch_with_semaphore(page):
+        async with semaphore:
+            page_data = await fetch_subcollection_page(collection_id, page)
+            return page_data.get("results", [])
 
-        # Create tasks for the remaining pages
-        tasks = [fetch_with_semaphore(page) for page in range(2, total_pages + 1)]
-        results = await asyncio.gather(*tasks)
+    # Create tasks for the remaining pages
+    tasks = [fetch_with_semaphore(page) for page in range(2, total_pages + 1)]
+    results = await asyncio.gather(*tasks)
 
-        # Combine results from all pages
-        for page_results in results:
-            subcollections.extend(page_results)
+    # Combine results from all pages
+    for page_results in results:
+        subcollections.extend(page_results)
 
-        return subcollections
+    logger.info("Fetched %d subcollections for collection ID: %s", len(subcollections), collection_id)
+    return subcollections
 
 
-def create_records(collection: Dict) -> List[Dict]:
+async def create_records(collection: Dict) -> List[Dict]:
     """
     Create records from collection metadata and its subcollections.
 
@@ -146,8 +160,8 @@ def create_records(collection: Dict) -> List[Dict]:
     :return: A list of records combining collection and subcollection data.
     """
     parent_id = collection["id"]
-    print(f"Fetching subcollections for collection ID: {parent_id}")
-    subcollections = fetch_all_subcollections(parent_id)
+    logger.info("Fetching subcollections for collection ID: %s", parent_id)
+    subcollections = await fetch_all_subcollections(parent_id)
     records = []
 
     for subcollection in subcollections:
@@ -169,7 +183,7 @@ def create_records(collection: Dict) -> List[Dict]:
 
     return records
 
-def main():
+async def main():
     """
     Main function to fetch and process collections from the FinBIF API.
     """
@@ -177,20 +191,21 @@ def main():
         level=logging.INFO, 
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
+
     try:
         # Fetch all collections
-        all_collections = List(fetch_collections())
+        all_collections = list(fetch_collections())
         logger.info("Fetched %d collections.", len(all_collections))
         # Process collections
         filtered_collections = process_collections(all_collections)
         # Log the number of collections without children
-        print(f"Found {len(filtered_collections)} collections without children")
         logger.info("Found %s collections without children.", len(filtered_collections))
 
         # Fetch subcollections for each filtered collection and create metadata records
         records = []
         for collection in filtered_collections:
-            records.extend(create_records(collection))
+            new_records = await create_records(collection)
+            records.extend(new_records)
             print(f"Ukupni broj records: {len(records)}")
             if len(records) >= 100:
                 logger.info("Reached 100 total records, stopping further processing.")
@@ -206,5 +221,8 @@ def main():
     except Exception as e:
         logger.error("Unexpected error: %s", e)
 
+    finally:
+        await shutdown_async_client()
+
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
