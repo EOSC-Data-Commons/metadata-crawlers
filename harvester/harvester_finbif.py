@@ -5,6 +5,7 @@ import logging
 import json
 from typing import List, Dict, Generator
 import os
+from lxml import etree
 #from harvester.settings import settings
 
 # temporary way of getting token, to be replaced by settings:
@@ -205,6 +206,22 @@ async def create_records(collection: Dict) -> List[Dict]:
             break
 
     return records
+
+def finbif_dict_to_xml(record: dict) -> str:
+    """
+    Convert a dictionary record to an XML (to be sent to XSLT).
+
+    :param record: A dictionary containing the record data.
+    :return: A string containing the XML representation of the record.
+    """
+    root = etree.Element("finbifRecord")
+
+    for key, value in record.items():
+        el = etree.SubElement(root, key)
+        el.text = str(value)
+
+    return etree.tostring(root, pretty_print=True, encoding="UTF-8").decode()
+
 
 async def main():
     """
