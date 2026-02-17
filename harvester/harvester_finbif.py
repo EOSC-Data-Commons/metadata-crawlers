@@ -7,6 +7,7 @@ from typing import List, Dict, Generator
 import os
 #from harvester.settings import settings
 
+# temporary way of getting token, to be replaced by settings:
 from dotenv import load_dotenv
 load_dotenv()
 ACCESS_TOKEN = os.getenv("FINBIF_ACCESS_TOKEN")
@@ -16,9 +17,9 @@ logger = logging.getLogger(__name__)
 
 # Base URL for the FinBIF API
 API_BASE = "https://api.laji.fi"
-COLLECTIONS_PAGE_SIZE = 100
-SUBCOLLECTIONS_PAGE_SIZE = 100
-MAX_CONCURRENT_REQUESTS = 10
+COLLECTIONS_PAGE_SIZE = 1000
+SUBCOLLECTIONS_PAGE_SIZE = 1000
+MAX_CONCURRENT_REQUESTS = 1
 
 retry_strategy = Retry(
     total=8,  # Number of retries
@@ -107,8 +108,22 @@ async def fetch_subcollection_page(collection_id: str, page: int) -> dict:
     :return: The JSON response as a dictionary.
     """
     url = f"{API_BASE}/warehouse/query/unit/aggregate"
+    aggregate_by = [
+    "gathering.conversions.year",                       # year observations were collected
+    "gathering.country",                                # country of observation (or country code)
+    "gathering.interpretations.country",                # FinBIF country code
+    "gathering.interpretations.countryDisplayname",     # country name in Finnish
+    "gathering.interpretations.finnishMunicipality",    # FinBIF municipality code (only for Finnish municipalities)
+    "gathering.interpretations.municipalityDisplayname",# Finnish municipality name
+    "gathering.municipality",                           # municipality name as provided by the observer (free text, non-standardized)
+    "unit.linkings.taxon.id",                           # FinBIF taxon ID
+    "unit.linkings.taxon.nameEnglish",                  # taxon name in English
+    "unit.linkings.taxon.nameFinnish",                  # taxon name in Finnish
+    "unit.linkings.taxon.nameSwedish",                  # taxon name in Swedish
+    "unit.linkings.taxon.scientificName",               # taxon scientific name
+]
     params = {
-        "aggregateBy": "gathering.conversions.year,gathering.municipality,unit.linkings.originalTaxon.scientificName",
+        "aggregateBy": ",".join(aggregate_by),
         "onlyCount": False,
         "pageSize": SUBCOLLECTIONS_PAGE_SIZE,
         "collectionId": collection_id,
