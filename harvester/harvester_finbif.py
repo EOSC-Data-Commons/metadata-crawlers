@@ -80,21 +80,20 @@ def process_collections(collections: List[Dict]) -> List[Dict]:
         if not collection.get("hasChildren", False):
             # Extract relevant metadata
             filtered_collections.append({
-                "id": collection.get("id"),
-                "collectionName": collection.get("collectionName"),
-                "longName": collection.get("longName"),
-                "collectionSize": collection.get("collectionSize"),
-                "collectionType": collection.get("collectionType"),
+                "collection_id": collection.get("id"),
+                "collection_name": collection.get("collectionName"),
+                "collection_long_name": collection.get("longName"),
+                "collection_size": collection.get("collectionSize"),
+                "collection_type": collection.get("collectionType", "").removeprefix("MY.collectionType"),
                 "description": collection.get("description"),
                 "language": collection.get("language"),
-                "owner": collection.get("owner"),
-                "publisherShortname": collection.get("publisherShortname"),
-                "intellectualOwner": collection.get("intellectualOwner"),
-                "taxonomicCoverage": collection.get("taxonomicCoverage"),
-                "geographicCoverage": collection.get("geographicCoverage"),
-                "temporalCoverage": collection.get("temporalCoverage"),
-                "dateCreated": collection.get("dateCreated"),
-                "dateEdited": collection.get("dateEdited"),
+                "publisher_shortname": collection.get("publisherShortname"),
+                "intellectual_owner": collection.get("intellectualOwner"),
+                "taxonomic_coverage": collection.get("taxonomicCoverage"),
+                "geographic_coverage": collection.get("geographicCoverage"),
+                "temporal_coverage": collection.get("temporalCoverage"),
+                "date_created": collection.get("dateCreated"),
+                "date_edited": collection.get("dateEdited"),
             })
     return filtered_collections
 
@@ -182,8 +181,17 @@ async def create_records(collection: Dict) -> List[Dict]:
     for subcollection in subcollections:
         record = {
             "gathering_year": subcollection['aggregateBy'].get("gathering.conversions.year"),
+            "gathering_country": subcollection['aggregateBy'].get("gathering.country"),
+            "gathering_country_code": subcollection['aggregateBy'].get("gathering.interpretations.country", "").removeprefix("http://tun.fi/"),
+            "gathering_country_finnish": subcollection['aggregateBy'].get("gathering.interpretations.countryDisplayname"),
             "gathering_municipality": subcollection['aggregateBy'].get("gathering.municipality"),
-            "scientific_name": subcollection['aggregateBy'].get("unit.linkings.originalTaxon.scientificName"),
+            "gathering_municipality_code": subcollection['aggregateBy'].get("gathering.interpretations.finnishMunicipality", "").removeprefix("http://tun.fi/"),
+            "gathering_municipality_finnish": subcollection['aggregateBy'].get("gathering.interpretations.municipalityDisplayname"),
+            "species_code": subcollection['aggregateBy'].get("unit.linkings.taxon.id", "").removeprefix("http://tun.fi/").replace("https://www.gbif.org/species/", "gbif:"),
+            "species_scientific_name": subcollection['aggregateBy'].get("unit.linkings.taxon.scientificName"),
+            "species_english_name": subcollection['aggregateBy'].get("unit.linkings.taxon.nameEnglish"),
+            "species_finnish_name": subcollection['aggregateBy'].get("unit.linkings.taxon.nameFinnish"),
+            "species_swedish_name": subcollection['aggregateBy'].get("unit.linkings.taxon.nameSwedish"),
             "count": subcollection.get("count"),
             "oldest_record": subcollection.get("oldestRecord"),
             "newest_record": subcollection.get("newestRecord")
