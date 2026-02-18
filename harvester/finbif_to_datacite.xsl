@@ -75,9 +75,9 @@
         <title>
           <xsl:text>Observations of </xsl:text>
           <xsl:value-of select="species_scientific_name"/>
-          <xsl:if test="species_english_name">
+          <xsl:if test="normalize-space(species_english_name)">
             <xsl:text> (</xsl:text>
-            <xsl:value-of select="species_english_name"/>
+            <xsl:value-of select="normalize-space(species_english_name)"/>
             <xsl:text>)</xsl:text>
           </xsl:if>
           <xsl:text> from </xsl:text>
@@ -109,9 +109,11 @@
         </date>
         
         <!-- Collection temporal coverage -->
-        <date dateType="Other" dateInformation="Temporal coverage of the collection">
-          <xsl:value-of select="temporal_coverage"/>
-        </date>
+        <xsl:if test="normalize-space(temporal_coverage)">
+          <date dateType="Other" dateInformation="Temporal coverage of the collection">
+            <xsl:value-of select="temporal_coverage"/>
+          </date>
+        </xsl:if>
         
         <!-- Metadata lifecycle -->
         <date dateType="Created">
@@ -131,15 +133,25 @@
       
       <!-- Subjects -->
       <subjects>
-        <subject><xsl:value-of select="taxonomic_coverage"/></subject>
-        <subject><xsl:value-of select="geographic_coverage"/></subject>
+        <xsl:if test="normalize-space(taxonomic_coverage)">
+          <subject><xsl:value-of select="taxonomic_coverage"/></subject>
+        </xsl:if>
+        <xsl:if test="normalize-space(geographic_coverage)">
+          <subject><xsl:value-of select="geographic_coverage"/></subject>
+        </xsl:if>
         <subject><xsl:value-of select="gathering_country"/></subject>
         <subject><xsl:value-of select="gathering_country_finnish"/></subject>
         <subject><xsl:value-of select="gathering_municipality"/></subject>
         <subject><xsl:value-of select="species_scientific_name"/></subject>
-        <subject><xsl:value-of select="species_english_name"/></subject>
-        <subject><xsl:value-of select="species_finnish_name"/></subject>
-        <subject><xsl:value-of select="species_swedish_name"/></subject>
+        <xsl:if test="normalize-space(species_english_name)">
+          <subject><xsl:value-of select="species_english_name"/></subject>
+        </xsl:if>
+        <xsl:if test="normalize-space(species_finnish_name)">
+          <subject><xsl:value-of select="species_finnish_name"/></subject>
+        </xsl:if>
+        <xsl:if test="normalize-space(species_swedish_name)">
+          <subject><xsl:value-of select="species_swedish_name"/></subject>
+        </xsl:if>
       </subjects>
       
       <!-- Description -->
@@ -152,8 +164,8 @@
           <xsl:text>, containing </xsl:text>
           <xsl:value-of select="count"/>
           <xsl:text> observations of </xsl:text>
-          <xsl:value-of select="scientific_name"/>
-          <xsl:if test="species_english_name">
+          <xsl:value-of select="species_scientific_name"/>
+          <xsl:if test="normalize-space(species_english_name)">
             <xsl:text> (</xsl:text>
             <xsl:value-of select="species_english_name"/>
             <xsl:text>)</xsl:text>
@@ -164,12 +176,19 @@
           <xsl:value-of select="gathering_year"/>
           <xsl:text>. Complete collection has </xsl:text>
           <xsl:value-of select="collection_size"/>
-          <xsl:text> observations of </xsl:text>
-          <xsl:value-of select="taxonomic_coverage"/>
-          <xsl:text> in </xsl:text>
-          <xsl:value-of select="geographic_coverage"/>
-          <xsl:text> during </xsl:text>
-          <xsl:value-of select="temporal_coverage"/>
+          <xsl:text> observations</xsl:text>
+          <xsl:if test="normalize-space(taxonomic_coverage)">
+            <xsl:text> of </xsl:text>
+            <xsl:value-of select="taxonomic_coverage"/>
+          </xsl:if>
+          <xsl:if test="normalize-space(geographic_coverage)">
+            <xsl:text> in </xsl:text>
+            <xsl:value-of select="geographic_coverage"/>
+          </xsl:if>
+          <xsl:if test="normalize-space(temporal_coverage)">
+            <xsl:text> during </xsl:text>
+            <xsl:value-of select="temporal_coverage"/>
+          </xsl:if>
           <xsl:text>.</xsl:text>
         </description>
         
@@ -197,11 +216,14 @@
       <language><xsl:value-of select="language"/></language>
       
       <!-- Geo coverage -->
-      <geoLocations>
-        <geoLocation>
-          <geoLocationPlace><xsl:value-of select="geographic_coverage"/></geoLocationPlace>
-        </geoLocation>
-      </geoLocations>
+      <xsl:if test="normalize-space(geographic_coverage)">
+        <geoLocations>
+          <geoLocation>
+            <geoLocationPlace><xsl:value-of select="geographic_coverage"/></geoLocationPlace>
+          </geoLocation>
+        </geoLocations>
+      </xsl:if>
+      
       
     </resource>
     
