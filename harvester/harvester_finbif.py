@@ -16,6 +16,8 @@ ACCESS_TOKEN = os.getenv("FINBIF_ACCESS_TOKEN")
 
 logger = logging.getLogger(__name__)
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # Base URL for the FinBIF API
 API_BASE = "https://api.laji.fi"
 COLLECTIONS_PAGE_SIZE = 1000
@@ -87,6 +89,7 @@ def process_collections(collections: List[Dict]) -> List[Dict]:
                 "collection_size": collection.get("collectionSize"),
                 "collection_type": collection.get("collectionType", "").removeprefix("MY.collectionType"),
                 "description": collection.get("description"),
+                "data_quality_description": collection.get("dataQualityDescription"),
                 "language": collection.get("language"),
                 "publisher_shortname": collection.get("publisherShortname"),
                 "intellectual_owner": collection.get("intellectualOwner"),
@@ -174,7 +177,7 @@ async def create_records(collection: Dict) -> List[Dict]:
     :param collection: A collection dictionary.
     :return: A list of records combining collection and subcollection data.
     """
-    parent_id = collection["id"]
+    parent_id = collection["collection_id"]
     logger.info("Fetching subcollections for collection ID: %s", parent_id)
     subcollections = await fetch_all_subcollections(parent_id)
     records = []
@@ -214,14 +217,31 @@ def finbif_dict_to_xml(record: dict) -> str:
     :param record: A dictionary containing the record data.
     :return: A string containing the XML representation of the record.
     """
-    root = etree.Element("finbifRecord")
+    root = etree.Element("record")
 
     for key, value in record.items():
+        if value is None or value == "":
+            continue
         el = etree.SubElement(root, key)
         el.text = str(value)
 
     return etree.tostring(root, pretty_print=True, encoding="UTF-8").decode()
 
+def apply_xslt_transform(xml_record: str, transform: etree.XSLT) -> str | None:
+    """
+    Apply a precompiled XSLT transform to an XML record.
+
+    :param xml_record: FinBIF XML record as string
+    :param transform: Compiled lxml.etree.XSLT object
+    :return: Transformed XML as string, or None on failure
+    """
+    try:
+        record = etree.fromstring(xml_record.encode("utf-8"))
+        result_tree = transform(record)
+        return etree.tostring(result_tree, pretty_print=True, encoding="UTF-8").decode("utf-8")
+    except Exception as e:
+        logger.warning("Transformation failed: %s", e)
+        return None
 
 async def main():
     """
@@ -247,12 +267,30 @@ async def main():
             new_records = await create_records(collection)
             records.extend(new_records)
             print(f"Ukupni broj records: {len(records)}")
-            if len(records) >= 100:
-                logger.info("Reached 100 total records, stopping further processing.")
+            if len(records) >= 50:
+                logger.info("Reached 50 total records, stopping further processing.")
                 break
 
-        with open('outputfile', 'w') as file:
+        XSLT_PATH = os.path.join(BASE_DIR, "finbif_to_datacite.xsl")
+        xslt_doc = etree.parse(XSLT_PATH)
+        transform = etree.XSLT(xslt_doc)
+
+        with open('finbif_records.txt', 'w') as file:
             file.write(json.dumps(records, indent=4))
+
+        datacite_records = []
+        for record in records:
+            xml_record = finbif_dict_to_xml(record)
+            datacite_record = apply_xslt_transform(xml_record, transform)
+            datacite_records.append(datacite_record)
+            
+        root = etree.Element("records")
+        for xml_str in datacite_records:
+            elem = etree.fromstring(xml_str.encode("utf-8"))
+            root.append(elem)
+
+        tree = etree.ElementTree(root)
+        tree.write("finbif_datacite_test.xml", pretty_print=True, encoding="UTF-8")
 
     except httpx.RequestError as e:
         logger.error("Network error while fetching collections: %s", e)
