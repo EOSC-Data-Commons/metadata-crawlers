@@ -5,14 +5,12 @@ import logging
 import json
 from typing import List, Dict, Generator
 import os
+import datetime
 from lxml import etree
-#from harvester.settings import settings
+from harvester.settings import settings
+from harvester.db_api_functions import send_harvest_event
 
-# temporary way of getting token, to be replaced by settings:
-from dotenv import load_dotenv
-load_dotenv()
-ACCESS_TOKEN = os.getenv("FINBIF_ACCESS_TOKEN")
-#ACCESS_TOKEN = settings.FINBIF_ACCESS_TOKEN
+ACCESS_TOKEN = settings.FINBIF_ACCESS_TOKEN
 
 logger = logging.getLogger(__name__)
 
@@ -202,11 +200,6 @@ async def create_records(collection: Dict) -> List[Dict]:
         }
         record.update(collection)
         records.append(record)
-        print(f"Broj records u subcoll: {len(records)}")
-        if len(records) >= 10:
-            print(f"Reached 10 records for collection {parent_id}, stopping further processing.")
-            logger.info("Reached 10 records for collection %s, stopping further processing.", parent_id)
-            break
 
     return records
 
@@ -243,16 +236,14 @@ def apply_xslt_transform(xml_record: str, transform: etree.XSLT) -> str | None:
         logger.warning("Transformation failed: %s", e)
         return None
 
-async def main():
+
+async def harvest_finbif(run_info: dict) -> bool:
     """
-    Main function to fetch and process collections from the FinBIF API.
+    Function to fetch and process collections from the FinBIF API.
     """
-    logging.basicConfig(
-        level=logging.INFO, 
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
 
     try:
+        harvest_run_id = run_info.get("id")
         # Fetch all collections
         all_collections = list(fetch_collections())
         logger.info("Fetched %d collections.", len(all_collections))
@@ -267,30 +258,40 @@ async def main():
             new_records = await create_records(collection)
             records.extend(new_records)
             print(f"Ukupni broj records: {len(records)}")
-            if len(records) >= 50:
-                logger.info("Reached 50 total records, stopping further processing.")
-                break
 
         XSLT_PATH = os.path.join(BASE_DIR, "finbif_to_datacite.xsl")
         xslt_doc = etree.parse(XSLT_PATH)
         transform = etree.XSLT(xslt_doc)
 
-        with open('finbif_records.txt', 'w') as file:
-            file.write(json.dumps(records, indent=4))
+        success = True
 
-        datacite_records = []
         for record in records:
             xml_record = finbif_dict_to_xml(record)
             datacite_record = apply_xslt_transform(xml_record, transform)
-            datacite_records.append(datacite_record)
-            
-        root = etree.Element("records")
-        for xml_str in datacite_records:
-            elem = etree.fromstring(xml_str.encode("utf-8"))
-            root.append(elem)
 
-        tree = etree.ElementTree(root)
-        tree.write("finbif_datacite_test.xml", pretty_print=True, encoding="UTF-8")
+            if not datacite_record:
+                logger.warning("Failed to create DataCite record fore record %s:%s:%s:%s", record['collection_id'], record['gathering_year'], record.get('gathering_municipality_code') or record.get('gathering_country_code'), record['species_code'])
+                continue
+
+            try:
+                event_payload = {
+                        "record_identifier": datacite_record.isidentifier,
+                        "datestamp": datetime.datetime.now(),
+                        "raw_metadata": datacite_record,
+                        "additional_metadata": record,
+                        "harvest_url": API_BASE,
+                        "repo_code": "FINBIF",
+                        "harvest_run_id": harvest_run_id,
+                        "is_deleted": False
+                    }
+                send_harvest_event(event_payload)
+
+            except Exception as e:
+                logger.error("Failed to send record: %s", e)
+                success = False
+
+        return success
+
 
     except httpx.RequestError as e:
         logger.error("Network error while fetching collections: %s", e)
@@ -302,5 +303,13 @@ async def main():
     finally:
         await shutdown_async_client()
 
-if __name__ == "__main__":
-    asyncio.run(main())
+
+def run_harvester_finbif(run_info: dict) -> bool:
+    """
+    Entry point for FinBIF harvesting from main.py
+    """
+    try:
+        return asyncio.run(harvest_finbif(run_info))
+    except Exception as e:
+        logger.exception("FinBIF harvester crashed: %s", e)
+        return False

@@ -3,6 +3,7 @@ import logging
 from datetime import datetime, timezone
 
 from .harvester_oaipmh import run_harvester_oaipmh, close_dataverse_client
+from harvester.harvester_finbif import run_harvester_finbif
 from .db_api_functions import start_harvest_run, close_harvest_run, get_open_run_id, close_warehouse_client
 from .logging import setup_logging
 
@@ -58,6 +59,8 @@ def main():
 
         if harvesting_protocol == "OAI-PMH":
             harvest_success = run_harvester_oaipmh(run_info)
+        elif harvesting_protocol == "FINBIF":
+            harvest_success = run_harvester_finbif(run_info)
         else:
             raise ValueError(f"Unsupported protocol: {harvesting_protocol}")
 
