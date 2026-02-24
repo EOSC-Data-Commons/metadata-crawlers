@@ -5,7 +5,7 @@ import logging
 import json
 from typing import List, Dict, Generator
 import os
-import datetime
+from datetime import datetime, timezone
 from lxml import etree
 from harvester.settings import settings
 from harvester.db_api_functions import send_harvest_event
@@ -168,7 +168,7 @@ async def fetch_all_subcollections(collection_id: str) -> List[Dict]:
     return subcollections
 
 
-async def create_records(collection: Dict) -> List[Dict]:
+async def create_records(collection: Dict) -> Generator[Dict, None, None]:
     """
     Create records from collection metadata and its subcollections.
 
@@ -178,7 +178,6 @@ async def create_records(collection: Dict) -> List[Dict]:
     parent_id = collection["collection_id"]
     logger.info("Fetching subcollections for collection ID: %s", parent_id)
     subcollections = await fetch_all_subcollections(parent_id)
-    records = []
 
     for subcollection in subcollections:
         record = {
@@ -199,9 +198,8 @@ async def create_records(collection: Dict) -> List[Dict]:
             "newest_record": subcollection.get("newestRecord")
         }
         record.update(collection)
-        records.append(record)
+        yield record
 
-    return records
 
 def finbif_dict_to_xml(record: dict) -> str:
     """
@@ -236,6 +234,13 @@ def apply_xslt_transform(xml_record: str, transform: etree.XSLT) -> str | None:
         logger.warning("Transformation failed: %s", e)
         return None
 
+def extract_identifier(datacite_xml: str) -> str | None:
+    try:
+        root = etree.fromstring(datacite_xml.encode())
+        return root.xpath("string(//identifier)")
+    except Exception:
+        return None
+    
 
 async def harvest_finbif(run_info: dict) -> bool:
     """
@@ -252,43 +257,49 @@ async def harvest_finbif(run_info: dict) -> bool:
         # Log the number of collections without children
         logger.info("Found %s collections without children.", len(filtered_collections))
 
-        # Fetch subcollections for each filtered collection and create metadata records
-        records = []
-        for collection in filtered_collections:
-            new_records = await create_records(collection)
-            records.extend(new_records)
-            print(f"Ukupni broj records: {len(records)}")
-
         XSLT_PATH = os.path.join(BASE_DIR, "finbif_to_datacite.xsl")
         xslt_doc = etree.parse(XSLT_PATH)
         transform = etree.XSLT(xslt_doc)
 
         success = True
+        record_counter = 0
 
-        for record in records:
-            xml_record = finbif_dict_to_xml(record)
-            datacite_record = apply_xslt_transform(xml_record, transform)
+        for collection in filtered_collections:
+            async for record in create_records(collection):
+                record_counter += 1
+                if record_counter % 1000 == 0:
+                    logger.info("Processed %d records so far", record_counter)
 
-            if not datacite_record:
-                logger.warning("Failed to create DataCite record fore record %s:%s:%s:%s", record['collection_id'], record['gathering_year'], record.get('gathering_municipality_code') or record.get('gathering_country_code'), record['species_code'])
-                continue
+                xml_record = finbif_dict_to_xml(record)
+                datacite_record = apply_xslt_transform(xml_record, transform)
 
-            try:
-                event_payload = {
-                        "record_identifier": datacite_record.isidentifier,
-                        "datestamp": datetime.datetime.now(),
+                if not datacite_record:
+                    logger.warning(
+                        "Failed DataCite transform for %s:%s:%s:%s",
+                        record['collection_id'],
+                        record['gathering_year'],
+                        record.get('gathering_municipality_code') or record.get('gathering_country_code'),
+                        record['species_code']
+                    )
+                    continue
+
+                try:
+                    event_payload = {
+                        "record_identifier": extract_identifier(datacite_record),
+                        "datestamp": datetime.now(timezone.utc).isoformat(),
                         "raw_metadata": datacite_record,
                         "additional_metadata": record,
                         "harvest_url": API_BASE,
                         "repo_code": "FINBIF",
                         "harvest_run_id": harvest_run_id,
-                        "is_deleted": False
+                        "is_deleted": False,
                     }
-                send_harvest_event(event_payload)
 
-            except Exception as e:
-                logger.error("Failed to send record: %s", e)
-                success = False
+                    send_harvest_event(event_payload)
+
+                except Exception as e:
+                    logger.error("Failed to send record: %s", e)
+                    success = False
 
         return success
 
@@ -302,6 +313,7 @@ async def harvest_finbif(run_info: dict) -> bool:
 
     finally:
         await shutdown_async_client()
+        _FINBIF_CLIENT.close()
 
 
 def run_harvester_finbif(run_info: dict) -> bool:
