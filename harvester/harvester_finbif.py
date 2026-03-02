@@ -3,7 +3,7 @@ from httpx_retries import Retry, RetryTransport
 import asyncio
 import logging
 import json
-from typing import List, Dict, Generator
+from typing import List, Dict, Generator, AsyncGenerator
 import os
 from datetime import datetime, timezone
 from lxml import etree
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Base URL for the FinBIF API
+# Base URL and config for the FinBIF API
 API_BASE = "https://api.laji.fi"
 COLLECTIONS_PAGE_SIZE = 1000
 SUBCOLLECTIONS_PAGE_SIZE = 1000
@@ -37,6 +37,13 @@ _ASYNC_FINBIF_CLIENT = httpx.AsyncClient(
     timeout=httpx.Timeout(120),
 )
 
+def shutdown_client():
+    try:
+        _FINBIF_CLIENT.close()
+        logger.info("Client closed successfully.")
+    except Exception as e:
+        logger.error("Error closing client: %s", e)
+
 async def shutdown_async_client():
     """
     Shutdown the shared async client.
@@ -47,6 +54,8 @@ async def shutdown_async_client():
     except Exception as e:
         logger.error("Error closing async client: %s", e)
 
+
+# GET COLLECTIONS:
 def fetch_collections() -> Generator[Dict, None, None]:
     """
     Fetch all collections from the FinBIF API.
@@ -99,6 +108,8 @@ def process_collections(collections: List[Dict]) -> List[Dict]:
             })
     return filtered_collections
 
+
+# GET SUBCOLLECTIONS:
 async def fetch_subcollection_page(collection_id: str, page: int) -> dict:
     """
     Fetch a single page of subcollections for a given collection.
@@ -134,52 +145,54 @@ async def fetch_subcollection_page(collection_id: str, page: int) -> dict:
     response.raise_for_status()
     return response.json()
 
-
-async def fetch_all_subcollections(collection_id: str) -> List[Dict]:
+async def iter_subcollections(collection_id: str) -> AsyncGenerator[Dict, None]:
     """
-    Fetch all subcollections for a given collection, using parallel requests.
-
-    :param collection_id: The ID of the collection.
-    :return: A list of all subcollections.
+    Stream subcollections page-by-page using the existing
+    fetch_subcollection_page() function and semaphore logic.
     """
+
     # Fetch the first page to determine the total number of pages
     first_page = await fetch_subcollection_page(collection_id, page=1)
     total_pages = first_page.get("lastPage", 1)
     logger.info("Collection ID %s has %d pages of subcollections.", collection_id, total_pages)
-    subcollections = first_page.get("results", [])
 
-    # Semaphore to limit the number of concurrent requests
+    # Yield first page results
+    for result in first_page.get("results", []):
+        yield result
+
+    if total_pages == 1:
+        return
+
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
-    async def fetch_with_semaphore(page):
+    async def fetch_with_semaphore(page: int):
         async with semaphore:
-            page_data = await fetch_subcollection_page(collection_id, page)
-            return page_data.get("results", [])
+            return await fetch_subcollection_page(collection_id, page)
 
-    # Create tasks for the remaining pages
-    tasks = [fetch_with_semaphore(page) for page in range(2, total_pages + 1)]
-    results = await asyncio.gather(*tasks)
+    # Schedule remaining pages
+    tasks = [
+        fetch_with_semaphore(page)
+        for page in range(2, total_pages + 1)
+    ]
 
-    # Combine results from all pages
-    for page_results in results:
-        subcollections.extend(page_results)
-
-    logger.info("Fetched %d subcollections for collection ID: %s", len(subcollections), collection_id)
-    return subcollections
+    for task  in asyncio.as_completed(tasks):
+        page_data = await task 
+        for result in page_data.get("results", []):
+            yield result
 
 
-async def create_records(collection: Dict) -> Generator[Dict, None, None]:
+# CREATE RECORDS FROM SUBCOLLECTIONS:
+async def create_records(collection: Dict) -> AsyncGenerator[Dict, None]:
     """
     Create records from collection metadata and its subcollections.
 
     :param collection: A collection dictionary.
-    :return: A list of records combining collection and subcollection data.
+    :return: Async generator yielding records.
     """
     parent_id = collection["collection_id"]
     logger.info("Fetching subcollections for collection ID: %s", parent_id)
-    subcollections = await fetch_all_subcollections(parent_id)
 
-    for subcollection in subcollections:
+    async for subcollection in iter_subcollections(parent_id):
         record = {
             "gathering_year": subcollection['aggregateBy'].get("gathering.conversions.year"),
             "gathering_country": subcollection['aggregateBy'].get("gathering.country"),
@@ -201,6 +214,7 @@ async def create_records(collection: Dict) -> Generator[Dict, None, None]:
         yield record
 
 
+#PROCESS RECORDS:
 def finbif_dict_to_xml(record: dict) -> str:
     """
     Convert a dictionary record to an XML (to be sent to XSLT).
@@ -242,6 +256,7 @@ def extract_identifier(datacite_xml: str) -> str | None:
         return None
     
 
+# MAIN HARVESTER:
 async def harvest_finbif(run_info: dict) -> bool:
     """
     Function to fetch and process collections from the FinBIF API.
@@ -312,8 +327,8 @@ async def harvest_finbif(run_info: dict) -> bool:
         logger.error("Unexpected error: %s", e)
 
     finally:
+        shutdown_client()
         await shutdown_async_client()
-        _FINBIF_CLIENT.close()
 
 
 def run_harvester_finbif(run_info: dict) -> bool:
