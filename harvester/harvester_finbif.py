@@ -3,7 +3,7 @@ from httpx_retries import Retry, RetryTransport
 import asyncio
 import logging
 import json
-from typing import List, Dict, Generator, AsyncGenerator
+from typing import List, Dict, Generator, AsyncGenerator, Tuple
 import os
 from datetime import datetime, timezone
 from lxml import etree
@@ -232,28 +232,25 @@ def finbif_dict_to_xml(record: dict) -> str:
 
     return etree.tostring(root, pretty_print=True, encoding="UTF-8").decode()
 
-def apply_xslt_transform(xml_record: str, transform: etree.XSLT) -> str | None:
+def apply_xslt_transform(xml_record: str, transform) -> Tuple[str, str]:
     """
     Apply a precompiled XSLT transform to an XML record.
 
     :param xml_record: FinBIF XML record as string
     :param transform: Compiled lxml.etree.XSLT object
-    :return: Transformed XML as string, or None on failure
+    :return: 
+        - Datacite XML string
+        - Extracted identifier string
     """
     try:
         record = etree.fromstring(xml_record.encode("utf-8"))
         result_tree = transform(record)
-        return etree.tostring(result_tree, pretty_print=True, encoding="UTF-8").decode("utf-8")
+        identifier = result_tree.xpath("//*[local-name()='identifier']") or None
+        datacite_xml = etree.tostring(result_tree, pretty_print=True, encoding="UTF-8").decode("utf-8")
+        return datacite_xml, identifier
     except Exception as e:
         logger.warning("Transformation failed: %s", e)
-        return None
-
-def extract_identifier(datacite_xml: str) -> str | None:
-    try:
-        root = etree.fromstring(datacite_xml.encode())
-        return root.xpath("string(//identifier)")
-    except Exception:
-        return None
+        return None, None
     
 
 # MAIN HARVESTER:
@@ -286,7 +283,14 @@ async def harvest_finbif(run_info: dict) -> bool:
                     logger.info("Processed %d records so far", record_counter)
 
                 xml_record = finbif_dict_to_xml(record)
-                datacite_record = apply_xslt_transform(xml_record, transform)
+                datacite_record, record_identifier = apply_xslt_transform(
+                    xml_record,
+                    transform
+                )
+
+                if not record_identifier:
+                    logger.warning("Missing identifier, skipping record")
+                    continue
 
                 if not datacite_record:
                     logger.warning(
@@ -300,7 +304,7 @@ async def harvest_finbif(run_info: dict) -> bool:
 
                 try:
                     event_payload = {
-                        "record_identifier": extract_identifier(datacite_record),
+                        "record_identifier": record_identifier,
                         "datestamp": datetime.now(timezone.utc).isoformat(),
                         "raw_metadata": datacite_record,
                         "additional_metadata": record,
