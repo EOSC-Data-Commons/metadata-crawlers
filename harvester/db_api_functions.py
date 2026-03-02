@@ -86,8 +86,11 @@ def send_harvest_event(event_payload: Dict) -> bool:
         response = _WAREHOUSE_CLIENT.post(HARVEST_EVENT_URL, json=event_payload)
         response.raise_for_status()
         return True
+    except httpx.HTTPStatusError as e:
+        logger.error("Failed to send record %s to API: HTTP status error %s: %s", event_payload.get("record_identifier"), e, e.response.text)
+        return False
     except httpx.RequestError as e:
-        logger.error("Failed to send record %s to API: %s", event_payload.get("record_identifier"), e)
+        logger.error("Failed to send record %s to API: Request error %s", event_payload.get("record_identifier"), e)
         return False
 
 

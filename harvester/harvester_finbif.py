@@ -245,7 +245,10 @@ def apply_xslt_transform(xml_record: str, transform) -> Tuple[str, str]:
     try:
         record = etree.fromstring(xml_record.encode("utf-8"))
         result_tree = transform(record)
-        identifier = result_tree.xpath("//*[local-name()='identifier']") or None
+        identifier_nodes = result_tree.xpath(
+            "//*[local-name()='identifier']"
+        )
+        identifier = identifier_nodes[0].text if identifier_nodes else None
         datacite_xml = etree.tostring(result_tree, pretty_print=True, encoding="UTF-8").decode("utf-8")
         return datacite_xml, identifier
     except Exception as e:
@@ -305,9 +308,9 @@ async def harvest_finbif(run_info: dict) -> bool:
                 try:
                     event_payload = {
                         "record_identifier": record_identifier,
-                        "datestamp": datetime.now(timezone.utc).isoformat(),
+                        "datestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                         "raw_metadata": datacite_record,
-                        "additional_metadata": record,
+                        "additional_metadata": json.dumps(record),
                         "harvest_url": API_BASE,
                         "repo_code": "FINBIF",
                         "harvest_run_id": harvest_run_id,
@@ -317,7 +320,7 @@ async def harvest_finbif(run_info: dict) -> bool:
                     send_harvest_event(event_payload)
 
                 except Exception as e:
-                    logger.error("Failed to send record: %s", e)
+                    logger.error("Unexpected error while processing record %s: %s", record_identifier, e)
                     success = False
 
         return success
