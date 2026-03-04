@@ -34,6 +34,12 @@
       </xsl:variable>
       
       <!-- Identifier -->
+      <identifier identifierType="Local">
+        <xsl:value-of select="concat(collection_id, ':', gathering_year, ':', species_code, ':', gathering_country_code, ':', translate(normalize-space(gathering_municipality), ' ', '_'))"/>
+      </identifier>
+      
+      
+      <!-- Alternate identifier -->
       <xsl:variable name="baseUrl" select="'https://laji.fi/en/observation/list?'" />
       <xsl:variable name="year" select="normalize-space(gathering_year)" />
       <xsl:variable name="locationParam">
@@ -49,19 +55,17 @@
         </xsl:choose>
       </xsl:variable>
 
-      <identifier identifierType="URL">
-        <xsl:value-of select="$baseUrl"/>
-        <xsl:text>collectionId=</xsl:text><xsl:value-of select="collection_id"/>
-        <xsl:text>&amp;target=</xsl:text><xsl:value-of select="species_code"/>
-        <xsl:text>&amp;time=</xsl:text>
-        <xsl:value-of select="$year"/><xsl:text>-01-01%2F</xsl:text><xsl:value-of select="$year"/><xsl:text>-12-31</xsl:text>
-        <xsl:text>&amp;</xsl:text><xsl:value-of select="$locationParam"/>
-      </identifier>
+      <alternateIdentifiers>
+        <alternateIdentifier identifierType="URL">
+          <xsl:value-of select="$baseUrl"/>
+          <xsl:text>collectionId=</xsl:text><xsl:value-of select="collection_id"/>
+          <xsl:text>&amp;target=</xsl:text><xsl:value-of select="species_code"/>
+          <xsl:text>&amp;time=</xsl:text>
+          <xsl:value-of select="$year"/><xsl:text>-01-01%2F</xsl:text><xsl:value-of select="$year"/><xsl:text>-12-31</xsl:text>
+          <xsl:text>&amp;</xsl:text><xsl:value-of select="$locationParam"/>
+        </alternateIdentifier>
+      </alternateIdentifiers>
 
-      <!-- Alternate identifier -->
-      <alternateIdentifier identifierType="Local">
-        <xsl:value-of select="concat(collection_id, ':', gathering_year, ':', $location_code, ':', species_code)"/>
-      </alternateIdentifier>
       
       <!-- Creator -->
       <creators>
