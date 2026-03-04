@@ -5,7 +5,7 @@ import logging
 import json
 from typing import List, Dict, Generator, AsyncGenerator, Tuple
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from lxml import etree
 from harvester.settings import settings
 from harvester.db_api_functions import send_harvest_event
@@ -20,7 +20,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 API_BASE = "https://api.laji.fi"
 COLLECTIONS_PAGE_SIZE = 1000
 SUBCOLLECTIONS_PAGE_SIZE = 1000
-MAX_CONCURRENT_REQUESTS = 1
+MAX_CONCURRENT_REQUESTS = 5
 
 retry_strategy = Retry(
     total=8,  # Number of retries
@@ -139,50 +139,81 @@ async def fetch_subcollection_page(collection_id: str, page: int) -> dict:
         "onlyCount": False,
         "pageSize": SUBCOLLECTIONS_PAGE_SIZE,
         "collectionId": collection_id,
-        "page": page
+        "page": page,
+        "orderBy": "firstLoadDateMax DESC"
     }
     response = await _ASYNC_FINBIF_CLIENT.get(url, params=params)
     response.raise_for_status()
     return response.json()
 
-async def iter_subcollections(collection_id: str) -> AsyncGenerator[Dict, None]:
+async def iter_subcollections(collection_id: str, from_date: date | None) -> AsyncGenerator[Dict, None]:
     """
-    Stream subcollections page-by-page using the existing
-    fetch_subcollection_page() function and semaphore logic.
+    Stream subcollections page-by-page using the existing fetch_subcollection_page() function and semaphore logic.
+    Use concurrent page fetching for initial harvest and sequential fetching for incremental harvest, stopping when firstLoadDateMax is older than from_date.
     """
-
     # Fetch the first page to determine the total number of pages
     first_page = await fetch_subcollection_page(collection_id, page=1)
     total_pages = first_page.get("lastPage", 1)
     logger.info("Collection ID %s has %d pages of subcollections.", collection_id, total_pages)
 
-    # Yield first page results
-    for result in first_page.get("results", []):
-        yield result
+    # incremental harvest mode
+    if from_date is not None:
+        page = 1
+        while page <= total_pages:
+            if page == 1:
+                page_data = first_page
+            else:
+                page_data = await fetch_subcollection_page(collection_id, page)
 
-    if total_pages == 1:
-        return
+            results = page_data.get("results", [])
 
-    semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
+            if not results:
+                return
 
-    async def fetch_with_semaphore(page: int):
-        async with semaphore:
-            return await fetch_subcollection_page(collection_id, page)
+            for result in results:
+                # date when the latest observation was added
+                first_load_str = result.get("firstLoadDateMax")
+                if first_load_str:
+                    record_date = datetime.strptime(first_load_str, "%Y-%m-%d").date()
 
-    # Schedule remaining pages
-    tasks = [
-        fetch_with_semaphore(page)
-        for page in range(2, total_pages + 1)
-    ]
+                    # early stop condition
+                    if record_date < from_date:
+                        logger.info("Stopping subcollection fetch for collection %s at page %d and date %s because subsequent records are older than from_date %s.", collection_id, page, record_date, from_date)
+                        return
 
-    for task  in asyncio.as_completed(tasks):
-        page_data = await task 
-        for result in page_data.get("results", []):
+                yield result
+
+            page += 1
+
+    # initial harvest mode:
+    else:
+        # Yield first page results
+        for result in first_page.get("results", []):
             yield result
+
+        if total_pages == 1:
+            return
+
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
+
+        async def fetch_with_semaphore(page: int):
+            async with semaphore:
+                return await fetch_subcollection_page(collection_id, page)
+
+        # Schedule remaining pages
+        tasks = [
+            fetch_with_semaphore(page)
+            for page in range(2, total_pages + 1)
+        ]
+
+        for task  in asyncio.as_completed(tasks):
+            page_data = await task 
+            for result in page_data.get("results", []):
+                yield result
 
 
 # CREATE RECORDS FROM SUBCOLLECTIONS:
-async def create_records(collection: Dict) -> AsyncGenerator[Dict, None]:
+async def create_records(collection: Dict, from_date: date | None) -> AsyncGenerator[Dict, None]:
     """
     Create records from collection metadata and its subcollections.
 
@@ -192,7 +223,7 @@ async def create_records(collection: Dict) -> AsyncGenerator[Dict, None]:
     parent_id = collection["collection_id"]
     logger.info("Fetching subcollections for collection ID: %s", parent_id)
 
-    async for subcollection in iter_subcollections(parent_id):
+    async for subcollection in iter_subcollections(parent_id, from_date):
         record = {
             "gathering_year": subcollection['aggregateBy'].get("gathering.conversions.year"),
             "gathering_country": subcollection['aggregateBy'].get("gathering.country"),
@@ -208,7 +239,9 @@ async def create_records(collection: Dict) -> AsyncGenerator[Dict, None]:
             "species_swedish_name": subcollection['aggregateBy'].get("unit.linkings.taxon.nameSwedish"),
             "count": subcollection.get("count"),
             "oldest_record": subcollection.get("oldestRecord"),
-            "newest_record": subcollection.get("newestRecord")
+            "newest_record": subcollection.get("newestRecord"),
+            "first_date_added": subcollection.get("firstLoadDateMin"),
+            "last_date_added": subcollection.get("firstLoadDateMax")
         }
         record.update(collection)
         yield record
@@ -263,7 +296,19 @@ async def harvest_finbif(run_info: dict) -> bool:
     """
 
     try:
+        record_counter = 0
+        harvest_events = 0
+        failed_events = 0
+
         harvest_run_id = run_info.get("id")
+        from_date = run_info.get("from_date")
+        from_ = datetime.fromisoformat(from_date.replace("Z", "+00:00")).date() if from_date else None
+
+        if from_:
+            logger.info("Incremental harvest since %s", from_date)
+        else:
+            logger.info("First harvest, fetching all records.")
+
         # Fetch all collections
         all_collections = list(fetch_collections())
         logger.info("Fetched %d collections.", len(all_collections))
@@ -277,10 +322,9 @@ async def harvest_finbif(run_info: dict) -> bool:
         transform = etree.XSLT(xslt_doc)
 
         success = True
-        record_counter = 0
 
         for collection in filtered_collections:
-            async for record in create_records(collection):
+            async for record in create_records(collection, from_):
                 record_counter += 1
                 if record_counter % 1000 == 0:
                     logger.info("Processed %d records so far", record_counter)
@@ -317,21 +361,34 @@ async def harvest_finbif(run_info: dict) -> bool:
                         "is_deleted": False,
                     }
 
-                    send_harvest_event(event_payload)
+                    if send_harvest_event(event_payload):
+                        harvest_events += 1
+                    else:
+                        failed_events += 1
 
                 except Exception as e:
                     logger.error("Unexpected error while processing record %s: %s", record_identifier, e)
                     success = False
+
+        logger.info(
+            "Harvest summary: processed %s records, successfully sent %s of them to the warehouse, failed to send %s records.",
+            record_counter,
+            harvest_events,
+            failed_events
+        )
 
         return success
 
 
     except httpx.RequestError as e:
         logger.error("Network error while fetching collections: %s", e)
+        return False
     except httpx.HTTPStatusError as e:
         logger.error("HTTP error while fetching collections: %s", e)
+        return False
     except Exception as e:
         logger.error("Unexpected error: %s", e)
+        return False
 
     finally:
         shutdown_client()
