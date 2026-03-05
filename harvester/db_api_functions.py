@@ -34,12 +34,12 @@ def start_harvest_run(harvest_url: str) -> Optional[Dict[str, Any]]:
         logger.error("Failed to start harvest run for %s: %s", harvest_url, e)
         return None
 
-def get_open_run_id(harvest_url: str) -> Optional[Dict]:
+def get_open_run_id(harvest_url: str) -> Optional[str]:
     """
     GET /harvest_run to fetch an open harvest run ID if it exists.
 
     :param harvest_url: endpoint for harvesting
-    :return: JSON response (dict) containing the ID of a harvest run and its status, or None if not found or failed
+    :return: run ID if status is 'open', otherwise None
     """
     params = {"harvest_url": harvest_url}
     try:
@@ -47,13 +47,26 @@ def get_open_run_id(harvest_url: str) -> Optional[Dict]:
         response.raise_for_status()
 
         response = response.json()
-        if response and response.get("status") == "open":
-            return response.get("id")
-        else:
+        runs = response.get("harvest_runs", [])
+
+        if not runs:
             return None
-    except httpx.RequestError as e:
-        logger.error("Error checking for open harvest run for %s: %s", harvest_url, e)
+
+        run = runs[0]
+
+        if run.get("status") == "open":
+            return run.get("id")
+
         return None
+
+    except httpx.HTTPStatusError as e:
+        logger.error("HTTP error while checking open harvest run for %s: %s", harvest_url, e.response.text)
+        return None
+
+    except httpx.RequestError as e:
+        logger.error("Network error while checking open harvest run for %s: %s", harvest_url, e)
+        return None
+    
 
 def close_harvest_run(payload: Dict) -> None:
     """
@@ -86,8 +99,11 @@ def send_harvest_event(event_payload: Dict) -> bool:
         response = _WAREHOUSE_CLIENT.post(HARVEST_EVENT_URL, json=event_payload)
         response.raise_for_status()
         return True
+    except httpx.HTTPStatusError as e:
+        logger.error("Failed to send record %s to API: HTTP status error %s: %s", event_payload.get("record_identifier"), e, e.response.text)
+        return False
     except httpx.RequestError as e:
-        logger.error("Failed to send record %s to API: %s", event_payload.get("record_identifier"), e)
+        logger.error("Failed to send record %s to API: Request error %s", event_payload.get("record_identifier"), e)
         return False
 
 
