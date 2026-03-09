@@ -1,7 +1,7 @@
 # Repository for metadata crawlers
 
 This repository contains a Python package for metadata crawling and ingestion.
-Currently, it supports harvesting metadata via the OAI-PMH protocol, using the oaipmh-scythe Python client library.
+Currently, it supports harvesting metadata via the OAI-PMH protocol, using the oaipmh-scythe Python client library, and a specialized harvester for FinBIF repository.
 The package is containerized with Docker and can be run locally or deployed as part of a larger metadata ingestion system.
 This is work in progress and will be extended with additional harvesting methods in the future.
 
@@ -11,7 +11,7 @@ The crawler is designed as a modular Python package.
 It performs the following tasks:
 1. Starts a new harvest run in the database via an API call to /harvest_run.
 2. Retrieves configuration info for the given repository endpoint.
-3. Determines the harvesting protocol (currently only OAI-PMH is supported) and executes the appropriate harvesting module.
+3. Determines the harvesting protocol (currently only OAI-PMH and FinBIF API are supported) and executes the appropriate harvesting module.
 4. Sends harvested metadata to the database via an API call to /harvest_event.
 5. Closes the harvest run with a success or failure status.
 6. Logs all stages of the workflow to both console and rotating log files.
@@ -21,7 +21,9 @@ The package consists of the following components:
 - main.py - entry point that namages harvest runs, fetches config info and runs the appropriate harvesting module
 - db_api_functions.py - contains functions used to communicate with the database API 
 - harvester_oaipmh.py - harvesting module for repositories that expose metadata via OAI-PMH
+- harvester_finbif.py - harvesting module for FinBIF repository
 - ddi_to_datacite.xsl - XSLT stylesheet that transforms metadata format from DDI to DataCite format
+- finbif_to_datacite.xsl - XSLT stylesheet that transforms metadata format from FinBIF dictionary to DataCite format
 - logging.py - logging config function
 - settings.py - handles settings for different environments
 
@@ -45,10 +47,12 @@ and fill in the required values:
 ```
 ENVIRONMENT=local
 WAREHOUSE_API_URL=http://localhost:8000
+FINBIF_ACCESS_TOKEN=
 ```
 - ```ENVIRONMENT``` chooses a configuration profile (local, dev, staging, production)
 - ```WAREHOUSE_API_URL``` must point to the Warehouse API instance the harvester will send results to
 For Docker execution, the ```WAREHOUSE_API_URL``` can be set in ```docker-compose.yml```.
+To use FinBIF API you need to use an access token - see https://info.laji.fi/en/frontpage/api/api-laji-fi/
 
 ## Running Locally
 To run the harvester directly on your machine:
@@ -57,7 +61,7 @@ To run the harvester directly on your machine:
 ```
 python -m harvester {repository URL}
 ```
-Replace ```{repository URL}``` with the actual OAI-PMH base URL of the repository you want to harvest.
+Replace ```{repository URL}``` with the actual base URL of the repository you want to harvest.
 
 ## Docker Usage
 The repository includes a ```Dockerfile``` and a ```docker-compose.yml```.
