@@ -9,6 +9,7 @@ Environment = Literal["production", "staging", "dev", "local"]
 class BaseAppSettings(BaseSettings):
     ENVIRONMENT: Environment = "dev"
     WAREHOUSE_API_URL: AnyHttpUrl
+    FINBIF_ACCESS_TOKEN: str
 
     LOG_DIR: str = "./logs"
     LOG_LEVEL: str = "INFO"
