@@ -50,9 +50,9 @@ WAREHOUSE_API_URL=http://localhost:8000
 FINBIF_ACCESS_TOKEN=
 ```
 - ```ENVIRONMENT``` chooses a configuration profile (local, dev, staging, production)
-- ```WAREHOUSE_API_URL``` must point to the Warehouse API instance the harvester will send results to
+- ```WAREHOUSE_API_URL``` must point to the Warehouse API instance the harvester will send results to.
 For Docker execution, the ```WAREHOUSE_API_URL``` can be set in ```docker-compose.yml```.
-To use FinBIF API you need to use an access token - see https://info.laji.fi/en/frontpage/api/api-laji-fi/
+- To use FinBIF API you need to use an access token ```FINBIF_ACCESS_TOKEN``` - see https://info.laji.fi/en/frontpage/api/api-laji-fi/
 
 ## Running Locally
 To run the harvester directly on your machine:
