@@ -16,6 +16,12 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # shared http client for Dataverse requests
 _DATAVERSE_CLIENT = httpx.Client(timeout=30)
 
+scythe_retry_strategy = {
+    "max_retries": 3,
+    "retry_status_codes": [500, 502, 503, 504],
+    "default_retry_after": 10,
+    "timeout": 120,
+}
 
 def close_dataverse_client():
     try:
