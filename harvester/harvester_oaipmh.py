@@ -229,3 +229,6 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
             failed_events
         )
         return False
+    
+    finally:
+        close_dataverse_client()
