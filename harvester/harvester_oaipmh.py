@@ -16,6 +16,12 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # shared http client for Dataverse requests
 _DATAVERSE_CLIENT = httpx.Client(timeout=30)
 
+scythe_retry_strategy = {
+    "max_retries": 3,
+    "retry_status_codes": [500, 502, 503, 504],
+    "default_retry_after": 10,
+    "timeout": 120,
+}
 
 def close_dataverse_client():
     try:
@@ -114,6 +120,8 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
         harvest_params = config.get("harvest_params")
         metadata_prefix = harvest_params.get("metadata_prefix", "oai_dc")
         set_ = harvest_params.get("set")
+        retry_strategy = harvest_params.get("retry_strategy", {})
+        retry_config = {**scythe_retry_strategy, **retry_strategy}  # merge with defaults
         code = config.get("code")
         additional = harvest_params.get("additional_metadata_params")
         additional_protocol = additional.get("protocol") if additional else None
@@ -125,7 +133,7 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
             transform = ET.XSLT(xslt_doc)
 
         # harvesting
-        with Scythe(harvest_url, timeout=180, max_retries=3, default_retry_after=60) as client:
+        with Scythe(harvest_url, **retry_config) as client:
             if from_:
                 logger.info("Incremental harvest since %s", from_date)
                 records = client.list_records(
@@ -221,3 +229,6 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
             failed_events
         )
         return False
+    
+    finally:
+        close_dataverse_client()
