@@ -59,7 +59,7 @@ def main():
 
         if harvesting_protocol == "OAI-PMH":
             harvest_success = run_harvester_oaipmh(run_info)
-        elif harvesting_protocol == "REST_API":
+        elif harvesting_protocol == "FINBIF_API":
             harvest_success = run_harvester_finbif(run_info)
         else:
             raise ValueError(f"Unsupported protocol: {harvesting_protocol}")
