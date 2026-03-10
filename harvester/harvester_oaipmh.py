@@ -183,6 +183,7 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
                         "record_identifier": identifier,
                         "datestamp": datestamp,
                         "raw_metadata": raw_metadata,
+                        "metadata_format": "XML",
                         "additional_metadata": additional_metadata,
                         "harvest_url": harvest_url,
                         "repo_code": code,
