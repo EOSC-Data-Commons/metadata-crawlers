@@ -1,0 +1,28 @@
+[project]
+name = "metadata-harvester"
+version = "0.1.0"
+description = "Harvest metadata from OAI-PMH endpoints or other protocols and store it in a database."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "httpx ==0.28.1",
+    "httpx-retries >=0.4.6",
+    "lxml ==6.0.2",
+    "oaipmh-scythe ==0.13.0",
+    "pydantic ==2.12.5",
+    "pydantic-settings ==2.12.0",
+    "celery[redis] >=5.4.0",
+    "beautifulsoup4 >=4.14.3",
+    "rdflib >=7.6.0",
+]
+
+[project.scripts]
+harvester = "harvester.main:main"
+
+[tool.uv.build-backend]
+module-name = "harvester"
+module-root = ""
+
+[build-system]
+requires = ["uv_build>=0.9.28,<0.10.0"]
+build-backend = "uv_build"

@@ -19,7 +19,7 @@ It performs the following tasks:
 ## Architecture
 The package consists of the following components:
 - main.py - entry point that namages harvest runs, fetches config info and runs the appropriate harvesting module
-- db_api_functions.py - contains functions used to communicate with the database API 
+- db_api_functions.py - contains functions used to communicate with the database API
 - harvester_oaipmh.py - harvesting module for repositories that expose metadata via OAI-PMH
 - harvester_finbif.py - harvesting module for FinBIF repository
 - ddi_to_datacite.xsl - XSLT stylesheet that transforms metadata format from DDI to DataCite format
@@ -29,7 +29,7 @@ The package consists of the following components:
 
 ## Requirements
 - [Python](https://www.python.org/downloads/) >= 3.10
-- Dependencies listed in requirements.txt 
+- Dependencies listed in requirements.txt
 
 ## Environment configuration
 The harvester uses Pydantic settings for all configuration.
@@ -95,11 +95,70 @@ When running in Docker, this log directory can be mounted as a volume to persist
 ## Future Extensions
 Future versions of this package will support additional crawling protocols.
 
+### Add a new harvest protocol
+
+> [!WARNING]
+>
+> The metadata-warehouse database needs to be running and initialized:
+>
+> ```sh
+> cd metadata-warehouse
+> docker compose up -d
+> cd scripts/postgres_data
+> uv run create_db.py --db datasetdb --reset
+> ```
+
+1. Update the `harvest_protocol` enum created in [`types.sql`](https://github.com/EOSC-Data-Commons/metadata-warehouse/blob/main/scripts/postgres_data/create_sql/datasetdb/types.sql):
+
+   ```sql
+   ALTER TYPE harvest_protocol ADD VALUE 'SCHEMAORG_EMBEDDED_JSONLD';
+   ```
+
+2. Add an endpoint for your new harvest protocol to the `endpoints` table in the [metadata-warehouse](https://github.com/EOSC-Data-Commons/metadata-warehouse) SQL database, for now it is done in the [`seed.sql` script](https://github.com/EOSC-Data-Commons/metadata-warehouse/blob/main/scripts/postgres_data/create_sql/datasetdb/seed.sql), e.g.
+
+   ```sql
+   INSERT INTO endpoints (repository_id, name, harvest_url, protocol, scientific_discipline, is_active, harvest_params)
+   SELECT
+       r.id,
+       'Bgee',
+       'https://www.bgee.org/search/species',
+       'SCHEMAORG_EMBEDDED_JSONLD',
+       'Biology',
+       true,
+       '{"metadata_prefix": "schema", "index_parent_dataset": true}'
+   FROM repositories r
+   WHERE r.code = 'SWISS'
+   ON CONFLICT (name) DO NOTHING;
+   ```
+
+3. Create a file in `harvester/harvesters/` folder and add your harvest function
+
+4. Update the `main.py` file to add your harvest function for your new protocol
+
+5. Run your harvester:
+
+   ```sh
+   uv run harvester https://www.bgee.org/search/species
+   ```
+
+## Update DataCite model
+
+The pydantic model to easily create DataCite records is automatically generated from the [JSON schema used by the metadata-warehouse](https://github.com/EOSC-Data-Commons/metadata-warehouse/blob/main/src/config/schema.json), to update it run:
+
+```sh
+uvx --from "datamodel-code-generator[http]" datamodel-codegen \
+  --url "https://raw.githubusercontent.com/EOSC-Data-Commons/metadata-warehouse/refs/heads/main/src/config/schema.json" \
+  --output harvester/datacite_model.py --input-file-type jsonschema \
+  --output-model-type pydantic_v2.BaseModel --use-annotated \
+  --class-name DataciteRecord
+```
+
 ## License
+
 This project is licensed under the Apache License 2.0.
 See the LICENSE file for details.
 
-This project uses the [oaipmh-scythe](https://github.com/afuetterer/oaipmh-scythe) Python client,  
+This project uses the [oaipmh-scythe](https://github.com/afuetterer/oaipmh-scythe) Python client,
 which is distributed under the BSD license.
-The BSD license is a permissive open source license that allows use, modification, and distribution.  
+The BSD license is a permissive open source license that allows use, modification, and distribution.
 For full license details, see the [oaipmh-scythe license](https://github.com/afuetterer/oaipmh-scythe/blob/master/LICENSE).

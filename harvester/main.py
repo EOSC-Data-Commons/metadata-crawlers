@@ -2,6 +2,8 @@ import argparse
 import logging
 from datetime import datetime, timezone
 
+from harvester.harvesters.schemaorg_harvester import run_harvester_schemaorg
+
 from .harvester_oaipmh import run_harvester_oaipmh, close_dataverse_client
 from harvester.harvester_finbif import run_harvester_finbif
 from .db_api_functions import start_harvest_run, close_harvest_run, get_open_run_id, close_warehouse_client
@@ -29,7 +31,7 @@ def main():
         # if there is no response, try to find an open harvest run and close it
         if run_info is None:
             logger.error("Failed to start harvest run, checking for existing open run...")
-            open_run_id = get_open_run_id(harvest_url)  
+            open_run_id = get_open_run_id(harvest_url)
             if open_run_id:
                 # if there is an open run for that endpoint, close it as failed and start a new one
                 logger.warning("Closing existing open harvest run %s as failed", open_run_id)
@@ -39,7 +41,7 @@ def main():
                     "success": False,
                     "started_at": start_time,  # this will overwrite the started_at date that is already in the DB, but API requires this field
                     "completed_at": end_time
-                    }
+                }
                 close_harvest_run(close_harvest_run_payload)
                 logger.info("Retry to start a new harvest run...")
                 run_info = start_harvest_run(harvest_url)
@@ -50,17 +52,19 @@ def main():
                 logger.error("No open run found. Quitting harvester.")
                 return 1
 
-        harvest_run_id = run_info["id"]
-        config = run_info.get("endpoint_config")
+        harvest_run_id = run_info.id
+        config = run_info.endpoint_config
         if not config:
             raise ValueError("Missing endpoint_config in API response")
-    
-        harvesting_protocol = config.get("protocol")
+
+        harvesting_protocol = config.protocol
 
         if harvesting_protocol == "OAI-PMH":
-            harvest_success = run_harvester_oaipmh(run_info)
+            harvest_success = run_harvester_oaipmh(run_info.model_dump(mode="json"))
         elif harvesting_protocol == "REST_API":
-            harvest_success = run_harvester_finbif(run_info)
+            harvest_success = run_harvester_finbif(run_info.model_dump(mode="json"))
+        elif harvesting_protocol == "SCHEMAORG_EMBEDDED_JSONLD":
+            harvest_success = run_harvester_schemaorg(run_info)
         else:
             raise ValueError(f"Unsupported protocol: {harvesting_protocol}")
 
@@ -69,7 +73,7 @@ def main():
         logger.exception("Harvest encountered an error: %s", e)
         harvest_success = False
 
-    
+
     finally:
         if harvest_run_id:
             end_time = datetime.now(timezone.utc).isoformat(timespec='seconds')
