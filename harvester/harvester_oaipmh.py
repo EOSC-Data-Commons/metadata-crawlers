@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import httpx
+import time
 from datetime import datetime
 from lxml import etree as ET
 from oaipmh_scythe import Scythe
@@ -65,6 +66,53 @@ def fetch_additional_oai(record_id: str, base_url: str, metadata_prefix: str) ->
             return ET.tostring(record.xml, pretty_print=True, encoding="unicode")
     except Exception as e:
         logger.warning("Error fetching %s metadata for %s: %s", metadata_prefix, record_id, e)
+        return None
+    
+
+def fetch_additional_metadata_zenodo(record_id: str, base_url: str) -> Optional[str]:
+    """
+    Fetch additional metadata (files) from a Zenodo record via its API.
+
+    This function constructs the appropriate URL for the Zenodo "files" endpoint 
+    using the record ID, performs a GET request, and returns the JSON response
+
+    :param record_id: Zenodo record identifier is like "oai:zenodo.org:8435696".
+    :param base_url: Base URL of Zenodo additional API for file metadata.
+    :return: JSON string of the record's file metadata or None if an error occurs.
+    """
+
+    # Zenodo OAI IDs come in the form "oai:zenodo.org:8435696".
+    # We need only the numeric part at the end for API calls.
+    # split(':') -> ['oai', 'zenodo.org', '8435696']
+    # [-1] -> '8435696'
+    record_id = record_id.split(":")[-1]
+
+    # Construct the full URL to fetch files for this specific record
+    # Example: "https://zenodo.org/api/records/8435696/files"
+    url = f"{base_url}/{record_id}/files"
+
+    try:
+        # Use a temporary HTTP client for the request
+        with httpx.Client() as client:
+            response = client.get(url)
+            response.raise_for_status() # Raise exception if HTTP status is 4xx or 5xx
+
+            return json.dumps(response.json(), indent=2)
+
+    except httpx.HTTPStatusError as e:
+        logger.warning(
+            "Failed to fetch Zenodo data for %s: HTTP %s",
+            record_id,
+            e.response.status_code if e.response else "N/A",
+        )
+        return None
+
+    except httpx.RequestError as e:
+        logger.error(
+            "Network error fetching Zenodo data for %s: %s",
+            record_id,
+            str(e),
+        )
         return None
 
 
@@ -146,6 +194,8 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
 
             for record in records:
                 record_count += 1
+                if record_count % 2 == 0 and code == "ZENODO":
+                    time.sleep(1)
 
                 try:
                     identifier = record.header.identifier
@@ -170,6 +220,12 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
                                 metadata_prefix=additional["format"]
                             )
 
+                        elif additional_protocol == "ZENODO_API":
+                            additional_metadata = fetch_additional_metadata_zenodo(
+                                record_id=identifier,
+                                base_url=additional["endpoint"]
+                            )
+                            
                         elif metadata_prefix == "oai_ddi25":
                             additional_metadata = raw_metadata
                             raw_metadata = apply_xslt_transform(raw_metadata, transform)
