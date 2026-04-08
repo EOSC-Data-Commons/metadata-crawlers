@@ -49,6 +49,85 @@ def fetch_dataverse_json(doi: str, base_url: str, exporter: str) -> Optional[str
         logger.error("Network error fetching Dataverse JSON for %s: %s", doi, e)
         return None
 
+def fetch_additional_metadata_hal(record_id: str, base_url: str) -> Optional[str]:
+    """
+    Fetch file metadata from the HAL Search API for a given HAL record.
+
+    Accepts both OAI identifiers ("oai:HAL:hal-04793587v2") and plain HAL IDs
+    ("hal-04793587v2"). The version suffix is required — it is split into a
+    separate query filter because the HAL API stores the base ID and version in
+    two distinct fields (halId_s and version_i).
+
+    Args:
+        record_id (str): HAL identifier, with or without the "oai:HAL:" prefix.
+                         Must include a version suffix (e.g. "v2").
+        base_url (str): HAL Search API endpoint.
+
+    Returns:
+        Optional[str]: Pretty-printed JSON response from the API, or None if
+                       the record was not found or the request failed.
+    """
+
+    # Strip the OAI prefix if present, leaving a plain HAL ID ("hal-04793587v2")
+    if record_id.startswith("oai:HAL:"):
+        hal_id = record_id[len("oai:HAL:"):]
+    else:
+        hal_id = record_id
+
+    # Split the base ID and version number so they can be passed to the correct
+    # API fields. The HAL Search API does not accept versioned IDs in halId_s —
+    # "hal-04793587v2" returns nothing; the version must go in version_i instead.
+    version: Optional[int] = None
+    parts = hal_id.rsplit("v", 1)
+    if len(parts) == 2 and parts[1].isdigit():
+        hal_id, version = parts[0], int(parts[1])
+
+    # halId_s matches the document; version_i pins it to the requested version.
+    # Without the version filter, all versions of the document would be returned.
+    query = f"halId_s:{hal_id}"
+    if version is not None:
+        query += f" AND version_i:{version}"
+
+    params = {
+        "q": query,
+        "wt": "json",
+        # Request only the fields needed to locate and describe attached files
+        "fl": ",".join([
+            "halId_s",         # document identifier
+            "fileMain_s",      # URL of the primary attached file
+            "files_s",         # URLs of all attached files
+            "fileType_s",      # file type (e.g. PDF)
+            "modifiedDate_tdate",   # last modification date
+            "producedDate_tdate",   # production/publication date
+            "version_i",       # version number
+        ]),
+    }
+
+    try:
+        response = _DATAVERSE_CLIENT.get(base_url, params=params)
+        response.raise_for_status()
+        data = response.json()
+        if not data.get("response", {}).get("docs"):
+            logger.warning("No HAL records found for %s", hal_id)
+            return None
+        return json.dumps(data, indent=2)
+
+    except httpx.HTTPStatusError as e:
+        logger.warning(
+            "Failed to fetch HAL JSON for %s: HTTP %s",
+            hal_id,
+            e.response.status_code if e.response else "N/A",
+        )
+        return None
+
+    except httpx.RequestError as e:
+        logger.error(
+            "Network error fetching HAL JSON for %s: %s",
+            hal_id,
+            e,
+        )
+        return None
+
 
 def fetch_additional_oai(record_id: str, base_url: str, metadata_prefix: str) -> Optional[str]:
     """
@@ -152,7 +231,6 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
                     datestamp = record.header.datestamp
                     is_deleted = getattr(record.header, "status", None) == "deleted"
                     raw_metadata = ET.tostring(record.xml, pretty_print=True, encoding="unicode")
-
                     additional_metadata = None
 
                     if not is_deleted:
@@ -168,6 +246,12 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
                                 record_id=identifier,
                                 base_url=additional["endpoint"],
                                 metadata_prefix=additional["format"]
+                            )
+
+                        elif additional_protocol == "HAL_API":
+                            additional_metadata = fetch_additional_metadata_hal(
+                                record_id=identifier,
+                                base_url=additional["endpoint"]
                             )
 
                         elif metadata_prefix == "oai_ddi25":
