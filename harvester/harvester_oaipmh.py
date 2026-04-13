@@ -52,44 +52,20 @@ def fetch_dataverse_json(doi: str, base_url: str, exporter: str) -> Optional[str
 def fetch_additional_metadata_hal(record_id: str, base_url: str) -> Optional[str]:
     """
     Fetch file metadata from the HAL Search API for a given HAL record.
-
-    Accepts both OAI identifiers ("oai:HAL:hal-04793587v2") and plain HAL IDs
-    ("hal-04793587v2"). The version suffix is required — it is split into a
-    separate query filter because the HAL API stores the base ID and version in
-    two distinct fields (halId_s and version_i).
-
+    
     Args:
-        record_id (str): HAL identifier, with or without the "oai:HAL:" prefix.
-                         Must include a version suffix (e.g. "v2").
+        record_id (str): HAL identifier.
         base_url (str): HAL Search API endpoint.
 
     Returns:
-        Optional[str]: Pretty-printed JSON response from the API, or None if
+        Optional[str]: JSON response from the API, or None if
                        the record was not found or the request failed.
     """
 
-    # Strip the OAI prefix if present, leaving a plain HAL ID ("hal-04793587v2")
-    if record_id.startswith("oai:HAL:"):
-        hal_id = record_id[len("oai:HAL:"):]
-    else:
-        hal_id = record_id
-
-    # Split the base ID and version number so they can be passed to the correct
-    # API fields. The HAL Search API does not accept versioned IDs in halId_s —
-    # "hal-04793587v2" returns nothing; the version must go in version_i instead.
-    version: Optional[int] = None
-    parts = hal_id.rsplit("v", 1)
-    if len(parts) == 2 and parts[1].isdigit():
-        hal_id, version = parts[0], int(parts[1])
-
-    # halId_s matches the document; version_i pins it to the requested version.
-    # Without the version filter, all versions of the document would be returned.
-    query = f"halId_s:{hal_id}"
-    if version is not None:
-        query += f" AND version_i:{version}"
-
+    # Remove version suffix from the ID because query doesn't accept version suffix
+    hal_id_without_version = record_id.split("v")[0]
     params = {
-        "q": query,
+        "q": f"halId_s:{hal_id_without_version}",
         "wt": "json",
         # Request only the fields needed to locate and describe attached files
         "fl": ",".join([
@@ -108,14 +84,14 @@ def fetch_additional_metadata_hal(record_id: str, base_url: str) -> Optional[str
         response.raise_for_status()
         data = response.json()
         if not data.get("response", {}).get("docs"):
-            logger.warning("No HAL records found for %s", hal_id)
+            logger.warning("No HAL records found for %s", record_id)
             return None
         return json.dumps(data, indent=2)
 
     except httpx.HTTPStatusError as e:
         logger.warning(
             "Failed to fetch HAL JSON for %s: HTTP %s",
-            hal_id,
+            record_id,
             e.response.status_code if e.response else "N/A",
         )
         return None
@@ -123,7 +99,7 @@ def fetch_additional_metadata_hal(record_id: str, base_url: str) -> Optional[str
     except httpx.RequestError as e:
         logger.error(
             "Network error fetching HAL JSON for %s: %s",
-            hal_id,
+            record_id,
             e,
         )
         return None
@@ -233,6 +209,9 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
                     raw_metadata = ET.tostring(record.xml, pretty_print=True, encoding="unicode")
                     additional_metadata = None
 
+                    # Identifier for additional metadata without namespace (everything after last ":")
+                    identifier_for_additional_metadata = identifier.split(":")[-1]
+
                     if not is_deleted:
                         if additional_protocol == "REST_API":
                             additional_metadata = fetch_dataverse_json(
@@ -250,7 +229,7 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
 
                         elif additional_protocol == "HAL_API":
                             additional_metadata = fetch_additional_metadata_hal(
-                                record_id=identifier,
+                                record_id=identifier_for_additional_metadata,
                                 base_url=additional["endpoint"]
                             )
 
