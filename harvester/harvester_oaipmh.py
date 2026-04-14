@@ -243,7 +243,7 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
 
                     # metadata and record info to be sent to the warehouse
                     event_payload = {
-                        "record_identifier": identifier,
+                        "record_identifier": identifier_for_additional_metadata if code != 'FinBIF' else identifier,
                         "datestamp": datestamp,
                         "raw_metadata": raw_metadata,
                         "additional_metadata": additional_metadata,
