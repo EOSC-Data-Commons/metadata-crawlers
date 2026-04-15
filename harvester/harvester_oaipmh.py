@@ -213,7 +213,7 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
                     identifier_for_additional_metadata = identifier.split(":")[-1]
 
                     if not is_deleted:
-                        if additional_protocol == "REST_API":
+                        if additional_protocol == "DATAVERSE_API":
                             additional_metadata = fetch_dataverse_json(
                                 doi=identifier,
                                 base_url=additional["endpoint"],
