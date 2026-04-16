@@ -49,6 +49,61 @@ def fetch_dataverse_json(doi: str, base_url: str, exporter: str) -> Optional[str
         logger.error("Network error fetching Dataverse JSON for %s: %s", doi, e)
         return None
 
+def fetch_additional_metadata_hal(record_id: str, base_url: str) -> Optional[str]:
+    """
+    Fetch file metadata from the HAL Search API for a given HAL record.
+    
+    Args:
+        record_id (str): HAL identifier.
+        base_url (str): HAL Search API endpoint.
+
+    Returns:
+        Optional[str]: JSON response from the API, or None if
+                       the record was not found or the request failed.
+    """
+
+    # Remove version suffix from the ID because query doesn't accept version suffix
+    hal_id_without_version = record_id.split("v")[0]
+    params = {
+        "q": f"halId_s:{hal_id_without_version}",
+        "wt": "json",
+        # Request only the fields needed to locate and describe attached files
+        "fl": ",".join([
+            "halId_s",         # document identifier
+            "fileMain_s",      # URL of the primary attached file
+            "files_s",         # URLs of all attached files
+            "fileType_s",      # file type (e.g. PDF)
+            "modifiedDate_tdate",   # last modification date
+            "producedDate_tdate",   # production/publication date
+            "version_i",       # version number
+        ]),
+    }
+
+    try:
+        response = _DATAVERSE_CLIENT.get(base_url, params=params)
+        response.raise_for_status()
+        data = response.json()
+        if not data.get("response", {}).get("docs"):
+            logger.warning("No HAL records found for %s", record_id)
+            return None
+        return json.dumps(data, indent=2)
+
+    except httpx.HTTPStatusError as e:
+        logger.warning(
+            "Failed to fetch HAL JSON for %s: HTTP %s",
+            record_id,
+            e.response.status_code if e.response else "N/A",
+        )
+        return None
+
+    except httpx.RequestError as e:
+        logger.error(
+            "Network error fetching HAL JSON for %s: %s",
+            record_id,
+            e,
+        )
+        return None
+
 
 def fetch_additional_oai(record_id: str, base_url: str, metadata_prefix: str) -> Optional[str]:
     """
@@ -152,11 +207,13 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
                     datestamp = record.header.datestamp
                     is_deleted = getattr(record.header, "status", None) == "deleted"
                     raw_metadata = ET.tostring(record.xml, pretty_print=True, encoding="unicode")
-
                     additional_metadata = None
 
+                    # Identifier for additional metadata without namespace (everything after last ":")
+                    identifier_for_additional_metadata = identifier.split(":")[-1]
+
                     if not is_deleted:
-                        if additional_protocol == "REST_API":
+                        if additional_protocol == "DATAVERSE_API":
                             additional_metadata = fetch_dataverse_json(
                                 doi=identifier,
                                 base_url=additional["endpoint"],
@@ -170,6 +227,12 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
                                 metadata_prefix=additional["format"]
                             )
 
+                        elif additional_protocol == "HAL_API":
+                            additional_metadata = fetch_additional_metadata_hal(
+                                record_id=identifier_for_additional_metadata,
+                                base_url=additional["endpoint"]
+                            )
+
                         elif metadata_prefix == "oai_ddi25":
                             additional_metadata = raw_metadata
                             raw_metadata = apply_xslt_transform(raw_metadata, transform)
@@ -180,7 +243,7 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
 
                     # metadata and record info to be sent to the warehouse
                     event_payload = {
-                        "record_identifier": identifier,
+                        "record_identifier": identifier_for_additional_metadata if code != 'FinBIF' else identifier,
                         "datestamp": datestamp,
                         "raw_metadata": raw_metadata,
                         "additional_metadata": additional_metadata,
