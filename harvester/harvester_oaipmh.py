@@ -246,6 +246,7 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
                         "record_identifier": identifier_for_additional_metadata if code != 'FinBIF' else identifier,
                         "datestamp": datestamp,
                         "raw_metadata": raw_metadata,
+                        "metadata_format": "XML",
                         "additional_metadata": additional_metadata,
                         "harvest_url": harvest_url,
                         "repo_code": code,

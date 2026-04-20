@@ -354,6 +354,7 @@ async def harvest_finbif(run_info: dict) -> bool:
                         "record_identifier": record_identifier,
                         "datestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                         "raw_metadata": datacite_record,
+                        "metadata_format": "XML",
                         "additional_metadata": json.dumps(record),
                         "harvest_url": API_BASE,
                         "repo_code": "FINBIF",
