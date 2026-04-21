@@ -461,11 +461,11 @@
             </datacite:rightsList>
         </xsl:if>
     </xsl:template>
-    <!--  ================= DESCRIPTIONS (Recommended) =================  -->
+    <!--  ================= DESCRIPTIONS =================  -->
     <xsl:template name="descriptions">
-        <xsl:if test="dc:description">
+        <xsl:if test="dc:description[normalize-space(.)]">
             <datacite:descriptions>
-                <xsl:for-each select="dc:description">
+                <xsl:for-each select="dc:description[normalize-space(.)]">
                     <datacite:description descriptionType="Abstract">
                         <xsl:if test="@xml:lang">
                             <xsl:attribute name="xml:lang">
