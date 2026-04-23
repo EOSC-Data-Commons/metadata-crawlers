@@ -299,7 +299,7 @@
     </xsl:template>
     <!--  ================= ALTERNATE IDENTIFIERS (Optional) =================  -->
     <!-- 
-        The primary identifier was chosen above (DOI > Handle > URN > first Other).
+        The primary identifier was chosen above (DOI > first Other).
         Everything else goes here as alternateIdentifiers.
      -->
     <xsl:template name="alternateIdentifiers">
