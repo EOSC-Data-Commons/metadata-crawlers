@@ -73,17 +73,33 @@
 
     <!--  ================= IDENTIFIER (Mandatory) =================  -->
     <xsl:template name="identifier">
+        <xsl:variable name="id" select="normalize-space(dc:identifier[1])"/>
         <xsl:choose>
-            <!-- DOI takes priority -->
-            <xsl:when test="dc:identifier[contains(., 'doi.org') or contains(., '10.')]">
+            <!-- DOI as URL -->
+            <xsl:when test="starts-with($id, 'https://doi.org/') or starts-with($id, 'http://doi.org/')">
                 <datacite:identifier identifierType="DOI">
-                    <xsl:value-of select="dc:identifier[contains(., 'doi.org') or contains(., '10.')][1]"/>
+                    <xsl:value-of select="substring-after($id, 'doi.org/')"/>
                 </datacite:identifier>
             </xsl:when>
-            <!-- Everything else: use first identifier as URL -->
-            <xsl:when test="dc:identifier">
+
+            <!-- DOI with prefix (doi:10.xxxx) -->
+            <xsl:when test="starts-with($id, 'doi:10.')">
+                <datacite:identifier identifierType="DOI">
+                    <xsl:value-of select="substring-after($id, 'doi:')"/>
+                </datacite:identifier>
+            </xsl:when>
+
+            <!-- Bare DOI -->
+            <xsl:when test="starts-with($id, '10.')">
+                <datacite:identifier identifierType="DOI">
+                    <xsl:value-of select="$id"/>
+                </datacite:identifier>
+            </xsl:when>
+
+            <!-- Otherwise URL -->
+            <xsl:when test="$id">
                 <datacite:identifier identifierType="URL">
-                    <xsl:value-of select="dc:identifier[1]"/>
+                    <xsl:value-of select="$id"/>
                 </datacite:identifier>
             </xsl:when>
             <xsl:otherwise>
@@ -91,6 +107,7 @@
             </xsl:otherwise>
         </xsl:choose>
     </xsl:template>
+
     <!--  ================= CREATORS (Mandatory) =================  -->
     <xsl:template name="creators">
         <datacite:creators>
