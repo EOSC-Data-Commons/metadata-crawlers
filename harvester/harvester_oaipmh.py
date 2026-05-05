@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import httpx
+import time
 from datetime import datetime
 from lxml import etree as ET
 from oaipmh_scythe import Scythe
@@ -179,6 +180,11 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
             xslt_doc = ET.parse(XSLT_PATH)
             transform = ET.XSLT(xslt_doc)
 
+        if metadata_prefix == "oai_dc":
+            XSLT_PATH = os.path.join(BASE_DIR, "dc_to_datacite.xsl")
+            xslt_doc = ET.parse(XSLT_PATH)
+            transform = ET.XSLT(xslt_doc)
+
         # harvesting
         with Scythe(harvest_url, timeout=180, max_retries=3, default_retry_after=60) as client:
             if from_:
@@ -234,6 +240,14 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
                             )
 
                         elif metadata_prefix == "oai_ddi25":
+                            additional_metadata = raw_metadata
+                            raw_metadata = apply_xslt_transform(raw_metadata, transform)
+                            if raw_metadata is None:
+                                logger.warning("Skipping record %s: transformation to DataCite failed.", identifier)
+                                failed_events += 1
+                                continue
+                        
+                        elif metadata_prefix == "oai_dc":
                             additional_metadata = raw_metadata
                             raw_metadata = apply_xslt_transform(raw_metadata, transform)
                             if raw_metadata is None:
