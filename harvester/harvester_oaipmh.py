@@ -169,10 +169,16 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
         harvest_url = config.get("harvest_url")
         harvest_params = config.get("harvest_params")
         metadata_prefix = harvest_params.get("metadata_prefix", "oai_dc")
-        set_ = harvest_params.get("set")
+        sets = harvest_params.get("set") if harvest_params.get("set") else [None]
         code = config.get("code")
         additional = harvest_params.get("additional_metadata_params")
         additional_protocol = additional.get("protocol") if additional else None
+        
+        # here we define for which repositories we need to add timeout in order get back all the records from them
+        repository_name = config.get("name")
+        need_timeout = False
+        if repository_name in ["ALBA", "Riga Stradins University", "CLARIN-IV", "ZENODO"]:
+            need_timeout = True
 
         # if schema is not DataCite, we will need to transform the XML
         if metadata_prefix == "oai_ddi25":
@@ -187,64 +193,44 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
 
         # harvesting
         with Scythe(harvest_url, timeout=180, max_retries=3, default_retry_after=60) as client:
-            if from_:
-                logger.info("Incremental harvest since %s", from_date)
-                records = client.list_records(
-                    from_=from_,
-                    until=until,
-                    metadata_prefix=metadata_prefix,
-                    set_=set_
-                )
-            else:
-                logger.info("First harvest, fetching all records.")
-                records = client.list_records(
-                    until=until,
-                    metadata_prefix=metadata_prefix,
-                    set_=set_,
-                    ignore_deleted=True
-                )
 
+            # if we have more than one set then we iterate in for loop for each set
+            for set_name in sets:
+                if from_:
+                    logger.info("Incremental harvest since %s", from_date)
+                    records = client.list_records(
+                        from_=from_,
+                        until=until,
+                        metadata_prefix=metadata_prefix,
+                        set_=set_name
+                    )
+                else:
+                    logger.info("First harvest, fetching all records.")
+                    records = client.list_records(
+                        #until=until, # some PaNOSC repositories won't work with "until" parameter so we do not need to pass this parameter at all
+                        metadata_prefix=metadata_prefix,
+                        set_=set_name,
+                        ignore_deleted=True
+                    )
 
-            for record in records:
-                record_count += 1
+                for record in records:
+                    record_count += 1
 
-                try:
-                    identifier = record.header.identifier
-                    datestamp = record.header.datestamp
-                    is_deleted = getattr(record.header, "status", None) == "deleted"
-                    raw_metadata = ET.tostring(record.xml, pretty_print=True, encoding="unicode")
-                    additional_metadata = None
+                    # after every 10 records add 1 second sleep
+                    if need_timeout:
+                        if record_count % 10 == 0:
+                            time.sleep(1)
 
-                    # Identifier for additional metadata without namespace (everything after last ":")
-                    identifier_for_additional_metadata = identifier.split(":")[-1]
-
-                    if not is_deleted:
-                        if additional_protocol == "DATAVERSE_API":
-                            additional_metadata = fetch_dataverse_json(
-                                doi=identifier,
-                                base_url=additional["endpoint"],
-                                exporter=additional["format"]
-                            )
-
-                        elif additional_protocol == "OAI-PMH":
-                            additional_metadata = fetch_additional_oai(
-                                record_id=identifier,
-                                base_url=additional["endpoint"],
-                                metadata_prefix=additional["format"]
-                            )
-
-                        elif additional_protocol == "HAL_API":
-                            additional_metadata = fetch_additional_metadata_hal(
-                                record_id=identifier_for_additional_metadata,
-                                base_url=additional["endpoint"]
-                            )
-
-                        elif metadata_prefix == "oai_ddi25":
-                            additional_metadata = raw_metadata
-                            raw_metadata = apply_xslt_transform(raw_metadata, transform)
-                            if raw_metadata is None:
-                                logger.warning("Skipping record %s: transformation to DataCite failed.", identifier)
-                                failed_events += 1
+                    try:
+                        identifier = record.header.identifier
+                        datestamp = record.header.datestamp
+                        is_deleted = getattr(record.header, "status", None) == "deleted"
+                        raw_metadata = ET.tostring(record.xml, pretty_print=True, encoding="unicode")
+                        
+                        # special case where we skip some records for PaNOSC ALBA repository because those records have poor metadata
+                        if repository_name == "ALBA":
+                            setSpecs = record.header.setSpecs
+                            if setSpecs == []:
                                 continue
                         
                         elif metadata_prefix == "oai_dc":
@@ -255,26 +241,60 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
                                 failed_events += 1
                                 continue
 
-                    # metadata and record info to be sent to the warehouse
-                    event_payload = {
-                        "record_identifier": identifier_for_additional_metadata if code != 'FinBIF' else identifier,
-                        "datestamp": datestamp,
-                        "raw_metadata": raw_metadata,
-                        "additional_metadata": additional_metadata,
-                        "harvest_url": harvest_url,
-                        "repo_code": code,
-                        "harvest_run_id": harvest_run_id,
-                        "is_deleted": is_deleted
-                    }
-                    
-                    if send_harvest_event(event_payload):
-                        harvest_events += 1
-                    else:
-                        failed_events += 1
+                        additional_metadata = None
 
-                except Exception as e:
-                    failed_events += 1
-                    logger.error("Record %s failed: %s", record_count, e)
+                        # Identifier for additional metadata without namespace (everything after last ":")
+                        identifier_for_additional_metadata = identifier.split(":")[-1]
+
+                        if not is_deleted:
+                            if metadata_prefix not in ["oai_datacite", "oai_datacite4", "datacite"]: # if metadata_prefix is not in datacite format
+                                additional_metadata = raw_metadata
+                                raw_metadata = apply_xslt_transform(raw_metadata, transform)
+                                if raw_metadata is None:
+                                    logger.warning("Skipping record %s: transformation to DataCite failed.", identifier)
+                                    failed_events += 1
+                                    continue
+
+                            elif additional_protocol == "DATAVERSE_API": # DANS
+                                additional_metadata = fetch_dataverse_json(
+                                    doi=identifier,
+                                    base_url=additional["endpoint"],
+                                    exporter=additional["format"]
+                                )
+
+                            elif additional_protocol == "OAI-PMH": # DABAR
+                                additional_metadata = fetch_additional_oai(
+                                    record_id=identifier,
+                                    base_url=additional["endpoint"],
+                                    metadata_prefix=additional["format"]
+                                )
+
+                            elif additional_protocol == "HAL_API": # HAL
+                                additional_metadata = fetch_additional_metadata_hal(
+                                    record_id=identifier_for_additional_metadata,
+                                    base_url=additional["endpoint"]
+                                )
+
+                        # metadata and record info to be sent to the warehouse
+                        event_payload = {
+                            "record_identifier": identifier_for_additional_metadata if code != 'FinBIF' else identifier,
+                            "datestamp": datestamp,
+                            "raw_metadata": raw_metadata,
+                            "additional_metadata": additional_metadata,
+                            "harvest_url": harvest_url,
+                            "repo_code": code,
+                            "harvest_run_id": harvest_run_id,
+                            "is_deleted": is_deleted
+                        }
+                        
+                        if send_harvest_event(event_payload):
+                            harvest_events += 1
+                        else:
+                            failed_events += 1
+
+                    except Exception as e:
+                        failed_events += 1
+                        logger.error("Record %s failed: %s", record_count, e)
 
 
         logger.info(
