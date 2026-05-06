@@ -177,33 +177,38 @@ def transformation_and_additional_metadata(raw_metadata, metadata_prefix, identi
 
     additional_metadata = None
 
-    if metadata_prefix not in ["oai_datacite", "oai_datacite4", "datacite"]: # if metadata_prefix is not in datacite format
-        additional_metadata = raw_metadata
-        raw_metadata = apply_xslt_transform(raw_metadata, transform)
-        if raw_metadata is None:
-            logger.warning("Skipping record %s: transformation to DataCite failed.", identifier)
-            return
+    try:
+        if metadata_prefix not in ["oai_datacite", "oai_datacite4", "datacite"]: # if metadata_prefix is not in datacite format
+            additional_metadata = raw_metadata
+            raw_metadata = apply_xslt_transform(raw_metadata, transform)
+            if raw_metadata is None:
+                logger.warning("Skipping record %s: transformation to DataCite failed.", identifier)
+                return None, None
 
-    elif additional_protocol == "DATAVERSE_API": # DANS
-        additional_metadata = fetch_dataverse_json(
-            doi=identifier,
-            base_url=additional_endpoint,
-            exporter=additional_format
-        )
+        elif additional_protocol == "DATAVERSE_API": # DANS
+            additional_metadata = fetch_dataverse_json(
+                doi=identifier,
+                base_url=additional_endpoint,
+                exporter=additional_format
+            )
 
-    elif additional_protocol == "OAI-PMH": # DABAR
-        additional_metadata = fetch_additional_oai(
-            record_id=identifier,
-            base_url=additional_endpoint,
-            metadata_prefix=additional_format
-        )
+        elif additional_protocol == "OAI-PMH": # DABAR
+            additional_metadata = fetch_additional_oai(
+                record_id=identifier,
+                base_url=additional_endpoint,
+                metadata_prefix=additional_format
+            )
 
-    elif additional_protocol == "HAL_API": # HAL
-        identifier_for_additional_metadata = identifier.split(":")[-1]
-        additional_metadata = fetch_additional_metadata_hal(
-            record_id=identifier_for_additional_metadata,
-            base_url=additional_endpoint
-        )
+        elif additional_protocol == "HAL_API": # HAL
+            identifier_for_additional_metadata = identifier.split(":")[-1]
+            additional_metadata = fetch_additional_metadata_hal(
+                record_id=identifier_for_additional_metadata,
+                base_url=additional_endpoint
+            )
+
+    except Exception as e:
+        logger.error("Error when fetching additional metadata: %s", e)
+        return None, None
     
     return (raw_metadata, additional_metadata)
     
@@ -273,7 +278,7 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
                     # after every 10 records add 1 second sleep
                     if need_timeout:
                         if record_count % 10 == 0:
-                            time.sleep(1)
+                            time.sleep(2)
 
                     try:
                         identifier = record.header.identifier
