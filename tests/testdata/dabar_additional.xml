@@ -1,0 +1,155 @@
+<record xmlns="http://www.openarchives.org/OAI/2.0/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <header>
+    <identifier>oai:dabar.srce.hr:irb_5</identifier>
+    <datestamp>2025-10-27</datestamp>
+  </header>
+  <metadata>
+    <modsCollection xmlns="http://www.loc.gov/mods/v3" xmlns:dabar="http://dabar.srce.hr/standards/schema/1.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:etd="http://www.ndltd.org/standards/metadata/etdms/1.0" xmlns:datacite="http://datacite.org/schema/kernel-4" xsi:schemaLocation="http://www.loc.gov/mods/v3 http://www.loc.gov/standards/mods/v3/mods-3-8.xsd http://dabar.srce.hr/standards/schema/1.0 https://dabar.srce.hr/standards/schema/1.0/dabar.xsd">
+      <mods ID="master" xsi:schemaLocation="http://www.loc.gov/mods/v3 http://www.loc.gov/standards/mods/v3/mods-3-6.xsd">
+        <identifier type="local">irb:5</identifier>
+        <name type="personal">
+          <role>
+            <roleTerm type="text" authority="loc" authorityURI="https://id.loc.gov/vocabulary/relators" valueURI="http://id.loc.gov/vocabulary/relators/aut">author</roleTerm>
+          </role>
+          <namePart type="given">Ivica</namePart>
+          <namePart type="family">Kopriva</namePart>
+          <affiliation lang="eng">Institut Ruđer Bošković</affiliation>
+          <affiliation lang="">3364</affiliation>
+        </name>
+        <name type="personal">
+          <role>
+            <roleTerm type="text" authority="loc" authorityURI="https://id.loc.gov/vocabulary/relators" valueURI="http://id.loc.gov/vocabulary/relators/aut">author</roleTerm>
+          </role>
+          <namePart type="given">Marija</namePart>
+          <namePart type="family">Brbić</namePart>
+        </name>
+        <name type="personal">
+          <role>
+            <roleTerm type="text" authority="loc" authorityURI="https://id.loc.gov/vocabulary/relators" valueURI="http://id.loc.gov/vocabulary/relators/aut">author</roleTerm>
+          </role>
+          <namePart type="given">Dijana</namePart>
+          <namePart type="family">Tolić</namePart>
+          <affiliation lang="hrv">Institut Ruđer Bošković</affiliation>
+          <affiliation lang="">3364</affiliation>
+        </name>
+        <name type="personal">
+          <role>
+            <roleTerm type="text" authority="loc" authorityURI="https://id.loc.gov/vocabulary/relators" valueURI="http://id.loc.gov/vocabulary/relators/aut">author</roleTerm>
+          </role>
+          <namePart type="given">Nino</namePart>
+          <namePart type="family">Antulov-Fantulin</namePart>
+        </name>
+        <name type="personal">
+          <role>
+            <roleTerm type="text" authority="loc" authorityURI="https://id.loc.gov/vocabulary/relators" valueURI="http://id.loc.gov/vocabulary/relators/aut">author</roleTerm>
+          </role>
+          <namePart type="given">Chen</namePart>
+          <namePart type="family">Xinjian</namePart>
+          <affiliation lang="hrv">Institut Ruđer Bošković</affiliation>
+          <affiliation lang="">3364</affiliation>
+        </name>
+        <titleInfo lang="eng" usage="primary">
+          <title>Fast clustering in linear independent 1D subspaces: segmentation of multi-channel images with high spatial resolution</title>
+        </titleInfo>
+        <language>
+          <languageTerm type="code" authority="iso639-2b">eng</languageTerm>
+        </language>
+        <genre authority="HRZVO-KR-HRZVO-KR-Vrsta_podataka" lang="hrv" valueURI="HRZVO-KR-HRZVO-KR-Vrsta_podataka:5">simulacijski podaci</genre>
+        <genre authority="HRZVO-KR-HRZVO-KR-Vrsta_podataka" lang="eng" valueURI="HRZVO-KR-HRZVO-KR-Vrsta_podataka:5">simulation data</genre>
+        <genre authority="coar" authorityURI="https://vocabularies.coar-repositories.org/resource_types/" valueURI="http://purl.org/coar/resource_type/W2XT-7017">simulation data</genre>
+        <abstract lang="eng" type="primary">Algorithms for subspace clustering (SC) such as sparse and low- rank representation SC are effective in terms of the accuracy but suffer from high computational complexity. We propose algorithm for SC of (highly) similar data points drawn from union of linear independent one-dimensional subspaces with computational complexity that is linear in number of data points. The algorithm finds a dictionary that represents data in reproducible kernel Hilbert space (RKHS). Afterwards, data are projected into RKHS by using empirical kernel map (EKM). Segmentation into subspaces is realized by applying the max operator on projected data. We provide rigorous proof that for noise free data proposed approach yields exact clustering into subspaces. We also prove that EKM-based projection yields less correlated data points. Due to nonlinear projection, the proposed method can adopt to linearly nonseparable data points. We demonstrate accuracy and computational efficiency of the proposed algorithm on synthetic dataset as well as on segmentation of tissue components from image of unstained specimen in histopathology.</abstract>
+        <subject lang="eng" usage="primary">
+          <topic>subspace clustering</topic>
+          <topic>linear independent 1D subspaces</topic>
+          <topic>empirical kernel map</topic>
+          <topic>image segmentation</topic>
+          <topic>unstained specimen</topic>
+        </subject>
+        <subject authority="nvzz.hr" ID="1#1.01#1.01.07">
+          <topic lang="hrv">Prirodne znanosti</topic>
+          <topic lang="eng">Natural Sciences</topic>
+          <topic lang="hrv">Matematika</topic>
+          <topic lang="eng">Mathematics</topic>
+          <topic lang="hrv">primijenjena matematika i matematičko modeliranje</topic>
+          <topic lang="eng">Applied Mathematics and Mathematical Modelling</topic>
+        </subject>
+        <note type="public" lang="hrv">Projekt
+Nazivi: Analiza nelinearnih komponenata s primjenama u kemometriji i patologiji (hrv); Pravne nadležnosti: HR; Financijeri: Hrvatska zaklada za znanost; Akronimi financijera: HRZZ</note>
+        <relatedItem displayLabel="related object" otherType="IsCitedBy" otherTypeAuth="OpenAIRE">
+          <identifier type="url">http://fulir.irb.hr/2761/</identifier>
+        </relatedItem>
+        <accessCondition type="restriction on access" authority="HRZVO-KR-PravaPristupa">openAccess</accessCondition>
+        <accessCondition type="use and reproduction">http://creativecommons.org/licenses/by-sa/4.0/</accessCondition>
+        <physicalDescription/>
+        <physicalDescription/>
+        <physicalDescription/>
+        <subject>
+          <geographic authority="iso3166">HR</geographic>
+        </subject>
+        <name type="corporate">
+          <role>
+            <roleTerm type="text" authority="loc" authorityURI="https://id.loc.gov/vocabulary/relators" valueURI="http://id.loc.gov/vocabulary/relators/pbl">publisher</roleTerm>
+            <roleTerm type="text" lang="hrv">izdavač</roleTerm>
+          </role>
+          <namePart lang="hrv">Institut Ruđer Bošković</namePart>
+          <namePart lang="eng">Ruđer Bošković Institute</namePart>
+        </name>
+        <location>
+          <url access="object in context" usage="primary" displayLabel="URN:NBN">https://urn.nsk.hr/urn:nbn:hr:241:579539</url>
+        </location>
+        <identifier type="urn">urn:nbn:hr:241:579539</identifier>
+        <recordInfo>
+          <recordIdentifier>irb:5/mods:2019-03-31T21:16:48+02:00</recordIdentifier>
+          <recordCreationDate encoding="iso8601">2019-03-31T21:16:48+02:00</recordCreationDate>
+          <recordContentSource authority="local">irb</recordContentSource>
+          <recordContentSource>Fulir DATA</recordContentSource>
+          <recordChangeDate encoding="iso8601">2021-03-01T15:44:29+01:00</recordChangeDate>
+        </recordInfo>
+        <name type="personal">
+          <namePart type="given">Alen</namePart>
+          <namePart type="family">Vodopijevec</namePart>
+          <role>
+            <roleTerm type="text" authority="loc" authorityURI="https://id.loc.gov/vocabulary/relators" valueURI="http://id.loc.gov/vocabulary/relators/dtc">data contributor</roleTerm>
+            <roleTerm type="text" lang="hrv">Djelatnik</roleTerm>
+          </role>
+        </name>
+        <name type="personal">
+          <namePart type="given">Lovorka</namePart>
+          <namePart type="family">Čaja</namePart>
+          <role>
+            <roleTerm type="text" authority="loc" authorityURI="https://id.loc.gov/vocabulary/relators" valueURI="http://id.loc.gov/vocabulary/relators/edt">editor</roleTerm>
+            <roleTerm type="text">data editor</roleTerm>
+          </role>
+        </name>
+        <genre authority="dabar" type="object type">dataset</genre>
+        <extension>
+          <dabar:kontaktZaCjelovitiTekst>ivica.kopriva@irb.hr</dabar:kontaktZaCjelovitiTekst>
+        </extension>
+      </mods>
+      <mods ID="FILE0" xsi:schemaLocation="http://www.loc.gov/mods/v3 http://www.loc.gov/standards/mods/v3/mods-3-6.xsd">
+        <physicalDescription>
+          <internetMediaType>application/zip</internetMediaType>
+        </physicalDescription>
+        <abstract displayLabel="data description" lang="eng">Part one - Supporting data and code</abstract>
+        <accessCondition type="restriction on access" authority="HRZVO-KR-PravaPristupa">openAccess</accessCondition>
+        <accessCondition type="use and reproduction">http://creativecommons.org/licenses/by-sa/4.0/</accessCondition>
+        <identifier type="file">primary file</identifier>
+      </mods>
+      <mods ID="FILE1" xsi:schemaLocation="http://www.loc.gov/mods/v3 http://www.loc.gov/standards/mods/v3/mods-3-6.xsd">
+        <physicalDescription>
+          <internetMediaType>application/zip</internetMediaType>
+        </physicalDescription>
+        <abstract displayLabel="data description" lang="eng">Part two: Supporting data and code</abstract>
+        <accessCondition type="restriction on access" authority="HRZVO-KR-PravaPristupa">openAccess</accessCondition>
+        <accessCondition type="use and reproduction">http://creativecommons.org/licenses/by-sa/4.0/</accessCondition>
+      </mods>
+      <mods ID="DOC0" xsi:schemaLocation="http://www.loc.gov/mods/v3 http://www.loc.gov/standards/mods/v3/mods-3-6.xsd">
+        <physicalDescription>
+          <internetMediaType>text/plain</internetMediaType>
+        </physicalDescription>
+        <accessCondition type="restriction on access" authority="HRZVO-KR-PravaPristupa">openAccess</accessCondition>
+        <accessCondition type="use and reproduction">http://creativecommons.org/licenses/by-sa/4.0/</accessCondition>
+      </mods>
+    </modsCollection>
+  </metadata>
+</record>
