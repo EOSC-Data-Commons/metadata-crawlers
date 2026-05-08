@@ -140,45 +140,50 @@ def apply_xslt_transform(ddi_xml: str, transform: ET.XSLT) -> str | None:
         logger.warning("Transformation failed: %s", e)
         return None
     
-def transformation_and_additional_metadata(raw_metadata, metadata_prefix, identifier, additional_protocol, additional_endpoint, additional_format):
+def transformation_and_additional_metadata(raw_metadata: str, 
+                                           metadata_prefix: str, 
+                                           identifier: str, 
+                                           additional_protocol: str | None, 
+                                           additional_endpoint: str | None, 
+                                           additional_format: str | None) -> tuple[str, str]:
     """
     Transform metadata into DataCite format and optionally fetch additional metadata.
 
     This function performs two main tasks:
-    1. If the input metadata is not already in a DataCite-compatible format, it applies an XSLT transformation to convert it.
+    1. If the original format is not DataCite already and a transformation has to be applied, 
+    the original XML is stored as additional metadata, like in the case of DABAR
     2. Depending on configuration, it may fetch additional metadata from external services (e.g., Dataverse API, OAI-PMH, HAL API).
 
     Args:
-        raw_metadata (lxml.etree._Element): The original metadata record (typically XML).
+        raw_metadata (str): The original metadata record (typically XML).
         metadata_prefix (str): The metadata format identifier (e.g., "oai_dc", "oai_ddi25", "datacite").
         identifier (str): Unique identifier of the record (e.g., DOI or OAI identifier).
-        additional_protocol (str): Name of protocol that is used for additional metadata (OAI-PMH, DATAVERSE_API, HAL_API...)
-        additional_endpoint (str): Base endpoint URL for additional metadata
-        additional_format (str): Additional parameter that is needed for some endpoints
+        additional_protocol (str | None): Name of protocol that is used for additional metadata (OAI-PMH, DATAVERSE_API, HAL_API...)
+        additional_endpoint (str | None): Base endpoint URL for additional metadata
+        additional_format (str | None): Additional parameter that is needed for some endpoints
 
-    Returns (raw_metadata, additional_metadata) or None where:
+    Returns (raw_metadata, additional_metadata) or (raw_metadata, None) or (None, None) where:
         - raw_metadata is the transformed (or original) metadata
-        - additional_metadata is either:
-            * original metadata (if transformed), or
-            * fetched metadata from an external service
-        Returns None if transformation fails.
+        - additional_metadata is either original metadata (if transformed), or fetched metadata from an external service
+        Returns (None, None) if transformation fails.
     """
 
     # if schema is not DataCite, we will need to transform the XML
-    if metadata_prefix == "oai_ddi25":
-        XSLT_PATH = os.path.join(BASE_DIR, "ddi_to_datacite.xsl")
-        xslt_doc = ET.parse(XSLT_PATH)
-        transform = ET.XSLT(xslt_doc)
-
-    if metadata_prefix == "oai_dc":
-        XSLT_PATH = os.path.join(BASE_DIR, "dc_to_datacite.xsl")
-        xslt_doc = ET.parse(XSLT_PATH)
-        transform = ET.XSLT(xslt_doc)
-
     additional_metadata = None
 
     try:
         if metadata_prefix not in ["oai_datacite", "oai_datacite4", "datacite"]: # if metadata_prefix is not in datacite format
+            transform = None
+            if metadata_prefix == "oai_ddi25":
+                XSLT_PATH = os.path.join(BASE_DIR, "ddi_to_datacite.xsl")
+                xslt_doc = ET.parse(XSLT_PATH)
+                transform = ET.XSLT(xslt_doc)
+
+            if metadata_prefix == "oai_dc":
+                XSLT_PATH = os.path.join(BASE_DIR, "dc_to_datacite.xsl")
+                xslt_doc = ET.parse(XSLT_PATH)
+                transform = ET.XSLT(xslt_doc)
+                
             additional_metadata = raw_metadata
             raw_metadata = apply_xslt_transform(raw_metadata, transform)
             if raw_metadata is None:
