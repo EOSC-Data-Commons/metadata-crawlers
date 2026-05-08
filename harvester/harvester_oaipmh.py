@@ -140,6 +140,83 @@ def apply_xslt_transform(ddi_xml: str, transform: ET.XSLT) -> str | None:
         logger.warning("Transformation failed: %s", e)
         return None
     
+def transformation_and_additional_metadata(raw_metadata: str, 
+                                           metadata_prefix: str, 
+                                           identifier: str, 
+                                           additional_protocol: str | None, 
+                                           additional_endpoint: str | None, 
+                                           additional_format: str | None) -> tuple[str, str]:
+    """
+    Transform metadata into DataCite format and optionally fetch additional metadata.
+
+    This function performs two main tasks:
+    1. If the original format is not DataCite already and a transformation has to be applied, 
+    the original XML is stored as additional metadata, like in the case of DABAR
+    2. Depending on configuration, it may fetch additional metadata from external services (e.g., Dataverse API, OAI-PMH, HAL API).
+
+    Args:
+        raw_metadata (str): The original metadata record (typically XML).
+        metadata_prefix (str): The metadata format identifier (e.g., "oai_dc", "oai_ddi25", "datacite").
+        identifier (str): Unique identifier of the record (e.g., DOI or OAI identifier).
+        additional_protocol (str | None): Name of protocol that is used for additional metadata (OAI-PMH, DATAVERSE_API, HAL_API...)
+        additional_endpoint (str | None): Base endpoint URL for additional metadata
+        additional_format (str | None): Additional parameter that is needed for some endpoints
+
+    Returns (raw_metadata, additional_metadata) or (raw_metadata, None) or (None, None) where:
+        - raw_metadata is the transformed (or original) metadata
+        - additional_metadata is either original metadata (if transformed), or fetched metadata from an external service
+        Returns (None, None) if transformation fails.
+    """
+
+    # if schema is not DataCite, we will need to transform the XML
+    additional_metadata = None
+
+    try:
+        if metadata_prefix not in ["oai_datacite", "oai_datacite4", "datacite"]: # if metadata_prefix is not in datacite format
+            transform = None
+            if metadata_prefix == "oai_ddi25":
+                XSLT_PATH = os.path.join(BASE_DIR, "ddi_to_datacite.xsl")
+                xslt_doc = ET.parse(XSLT_PATH)
+                transform = ET.XSLT(xslt_doc)
+
+            if metadata_prefix == "oai_dc":
+                XSLT_PATH = os.path.join(BASE_DIR, "dc_to_datacite.xsl")
+                xslt_doc = ET.parse(XSLT_PATH)
+                transform = ET.XSLT(xslt_doc)
+                
+            additional_metadata = raw_metadata
+            raw_metadata = apply_xslt_transform(raw_metadata, transform)
+            if raw_metadata is None:
+                logger.warning("Skipping record %s: transformation to DataCite failed.", identifier)
+                return None, None
+
+        elif additional_protocol == "DATAVERSE_API": # DANS
+            additional_metadata = fetch_dataverse_json(
+                doi=identifier,
+                base_url=additional_endpoint,
+                exporter=additional_format
+            )
+
+        elif additional_protocol == "OAI-PMH": # DABAR
+            additional_metadata = fetch_additional_oai(
+                record_id=identifier,
+                base_url=additional_endpoint,
+                metadata_prefix=additional_format
+            )
+
+        elif additional_protocol == "HAL_API": # HAL
+            identifier_for_additional_metadata = identifier.split(":")[-1]
+            additional_metadata = fetch_additional_metadata_hal(
+                record_id=identifier_for_additional_metadata,
+                base_url=additional_endpoint
+            )
+
+    except Exception as e:
+        logger.error("Error when fetching additional metadata: %s", e)
+        return None, None
+    
+    return (raw_metadata, additional_metadata)
+    
 
 def run_harvester_oaipmh(run_info: dict) -> bool:
     """
@@ -171,25 +248,12 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
         metadata_prefix = harvest_params.get("metadata_prefix", "oai_dc")
         sets = harvest_params.get("set") if harvest_params.get("set") else [None]
         code = config.get("code")
-        additional = harvest_params.get("additional_metadata_params")
-        additional_protocol = additional.get("protocol") if additional else None
         
         # here we define for which repositories we need to add timeout in order get back all the records from them
         repository_name = config.get("name")
         need_timeout = False
         if repository_name in ["ALBA", "Riga Stradins University", "CLARIN-IV", "ZENODO"]:
             need_timeout = True
-
-        # if schema is not DataCite, we will need to transform the XML
-        if metadata_prefix == "oai_ddi25":
-            XSLT_PATH = os.path.join(BASE_DIR, "ddi_to_datacite.xsl")
-            xslt_doc = ET.parse(XSLT_PATH)
-            transform = ET.XSLT(xslt_doc)
-
-        if metadata_prefix == "oai_dc":
-            XSLT_PATH = os.path.join(BASE_DIR, "dc_to_datacite.xsl")
-            xslt_doc = ET.parse(XSLT_PATH)
-            transform = ET.XSLT(xslt_doc)
 
         # harvesting
         with Scythe(harvest_url, timeout=180, max_retries=3, default_retry_after=60) as client:
@@ -219,7 +283,7 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
                     # after every 10 records add 1 second sleep
                     if need_timeout:
                         if record_count % 10 == 0:
-                            time.sleep(1)
+                            time.sleep(2)
 
                     try:
                         identifier = record.header.identifier
@@ -232,48 +296,27 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
                             setSpecs = record.header.setSpecs
                             if setSpecs == []:
                                 continue
-                        
-                        elif metadata_prefix == "oai_dc":
-                            additional_metadata = raw_metadata
-                            raw_metadata = apply_xslt_transform(raw_metadata, transform)
-                            if raw_metadata is None:
-                                logger.warning("Skipping record %s: transformation to DataCite failed.", identifier)
-                                failed_events += 1
-                                continue
 
-                        additional_metadata = None
+                        harvest_params = config.get("harvest_params")
+                        additional = harvest_params.get("additional_metadata_params")
+                        additional_protocol = additional.get("protocol") if additional else None
+                        additional_endpoint = additional["endpoint"] if additional else None
+                        additional_format = additional["format"] if additional else None
 
                         # Identifier for additional metadata without namespace (everything after last ":")
                         identifier_for_additional_metadata = identifier.split(":")[-1]
+                        additional_metadata = None
 
                         if not is_deleted:
-                            if metadata_prefix not in ["oai_datacite", "oai_datacite4", "datacite"]: # if metadata_prefix is not in datacite format
-                                additional_metadata = raw_metadata
-                                raw_metadata = apply_xslt_transform(raw_metadata, transform)
-                                if raw_metadata is None:
-                                    logger.warning("Skipping record %s: transformation to DataCite failed.", identifier)
-                                    failed_events += 1
-                                    continue
-
-                            elif additional_protocol == "DATAVERSE_API": # DANS
-                                additional_metadata = fetch_dataverse_json(
-                                    doi=identifier,
-                                    base_url=additional["endpoint"],
-                                    exporter=additional["format"]
-                                )
-
-                            elif additional_protocol == "OAI-PMH": # DABAR
-                                additional_metadata = fetch_additional_oai(
-                                    record_id=identifier,
-                                    base_url=additional["endpoint"],
-                                    metadata_prefix=additional["format"]
-                                )
-
-                            elif additional_protocol == "HAL_API": # HAL
-                                additional_metadata = fetch_additional_metadata_hal(
-                                    record_id=identifier_for_additional_metadata,
-                                    base_url=additional["endpoint"]
-                                )
+                            raw_metadata, additional_metadata = transformation_and_additional_metadata(raw_metadata, 
+                                                                                                       metadata_prefix, 
+                                                                                                       identifier,
+                                                                                                       additional_protocol,
+                                                                                                       additional_endpoint,
+                                                                                                       additional_format)
+                            if raw_metadata is None:
+                                failed_events += 1
+                                continue
 
                         # metadata and record info to be sent to the warehouse
                         event_payload = {

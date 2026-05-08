@@ -1,0 +1,50 @@
+<record xmlns="http://www.openarchives.org/OAI/2.0/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <header>
+    <identifier>oai:rodare.hzdr.de:970</identifier>
+    <datestamp>2021-05-04T08:32:13Z</datestamp>
+    <setSpec>openaire_data</setSpec>
+    <setSpec>user-rodare</setSpec>
+  </header>
+  <metadata>
+    <oai_datacite xmlns="http://schema.datacite.org/oai/oai-1.0/" xsi:schemaLocation="http://schema.datacite.org/oai/oai-1.0/ oai_datacite.xsd">
+      <isReferenceQuality>true</isReferenceQuality>
+      <schemaVersion>4.1</schemaVersion>
+      <datacentreSymbol>CERN.ZENODO</datacentreSymbol>
+      <payload>
+        <resource xmlns="http://datacite.org/schema/kernel-4" xsi:schemaLocation="http://datacite.org/schema/kernel-4 http://schema.datacite.org/meta/kernel-4.1/metadata.xsd">
+          <identifier identifierType="DOI">10.14278/rodare.970</identifier>
+          <creators>
+            <creator>
+              <creatorName>Podlipec, Rok</creatorName>
+              <givenName>Rok</givenName>
+              <familyName>Podlipec</familyName>
+            </creator>
+          </creators>
+          <titles>
+            <title>Dataset: Method for real-time controlled tissue theranostics using a single adaptable laser source</title>
+          </titles>
+          <publisher>Rodare</publisher>
+          <publicationYear>2021</publicationYear>
+          <dates>
+            <date dateType="Issued">2021-05-03</date>
+          </dates>
+          <resourceType resourceTypeGeneral="Dataset"/>
+          <relatedIdentifiers>
+            <relatedIdentifier relatedIdentifierType="URL" relationType="IsIdenticalTo">https://www.hzdr.de/publications/Publ-32599</relatedIdentifier>
+            <relatedIdentifier relatedIdentifierType="URL" relationType="IsReferencedBy">https://www.hzdr.de/publications/Publ-32597</relatedIdentifier>
+            <relatedIdentifier relatedIdentifierType="URL" relationType="IsCompiledBy">https://rodare.hzdr.de/record/972</relatedIdentifier>
+            <relatedIdentifier relatedIdentifierType="DOI" relationType="IsVersionOf">10.14278/rodare.969</relatedIdentifier>
+            <relatedIdentifier relatedIdentifierType="URL" relationType="IsPartOf">https://rodare.hzdr.de/communities/rodare</relatedIdentifier>
+          </relatedIdentifiers>
+          <rightsList>
+            <rights rightsURI="https://creativecommons.org/licenses/by/4.0/legalcode">Creative Commons Attribution 4.0 International</rights>
+            <rights rightsURI="info:eu-repo/semantics/openAccess">Open Access</rights>
+          </rightsList>
+          <descriptions>
+            <description descriptionType="Abstract">&lt;p&gt;Raw data of theranostics laser parameters and calculated descriptor values&amp;nbsp;from FLIM (Fluorescence lifetime imaging microscopy) and AF (autofluorescence) retinal diagnostics&amp;nbsp;for real-time quantification of the treatment effect.&lt;/p&gt;</description>
+          </descriptions>
+        </resource>
+      </payload>
+    </oai_datacite>
+  </metadata>
+</record>
