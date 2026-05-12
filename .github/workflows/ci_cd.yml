@@ -1,0 +1,22 @@
+name: Python tests
+
+on: [ push ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [ "3.12", "3.13" ]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install project
+        run: uv sync --dev
+
+      - name: Run tests
+        run: uv run pytest tests
