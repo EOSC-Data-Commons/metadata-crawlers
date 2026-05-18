@@ -54,13 +54,10 @@ def fetch_additional_metadata_hal(record_id: str, base_url: str) -> Optional[str
     """
     Fetch file metadata from the HAL Search API for a given HAL record.
     
-    Args:
-        record_id (str): HAL identifier.
-        base_url (str): HAL Search API endpoint.
-
-    Returns:
-        Optional[str]: JSON response from the API, or None if
-                       the record was not found or the request failed.
+    :param record_id: HAL record identifier
+    :param base_url: HAL Search API endpoint
+    :return: stringified JSON response with additional metadata;
+            returns None if the request fails or the record is not found
     """
 
     # Remove version suffix from the ID because query doesn't accept version suffix
@@ -124,17 +121,17 @@ def fetch_additional_oai(record_id: str, base_url: str, metadata_prefix: str) ->
         return None
 
 
-def apply_xslt_transform(ddi_xml: str, transform: ET.XSLT) -> str | None:
+def apply_xslt_transform(xml: str, transform: ET.XSLT) -> str | None:
     """
-    Apply a precompiled XSLT transform to a DDI XML string. (for SwissUBase)
+    Apply a precompiled XSLT transform to a XML string.
 
-    :param ddi_xml: DDI XML as string
+    :param xml: XML as string
     :param transform: Compiled lxml.etree.XSLT object
     :return: Transformed XML as string, or None on failure
     """
     try:
-        ddi_doc = ET.fromstring(ddi_xml.encode("utf-8"))
-        result_tree = transform(ddi_doc)
+        doc = ET.fromstring(xml.encode("utf-8"))
+        result_tree = transform(doc)
         return ET.tostring(result_tree, pretty_print=True, encoding="UTF-8").decode("utf-8")
     except Exception as e:
         logger.warning("Transformation failed: %s", e)
@@ -154,18 +151,17 @@ def transformation_and_additional_metadata(raw_metadata: str,
     the original XML is stored as additional metadata, like in the case of DABAR
     2. Depending on configuration, it may fetch additional metadata from external services (e.g., Dataverse API, OAI-PMH, HAL API).
 
-    Args:
-        raw_metadata (str): The original metadata record (typically XML).
-        metadata_prefix (str): The metadata format identifier (e.g., "oai_dc", "oai_ddi25", "datacite").
-        identifier (str): Unique identifier of the record (e.g., DOI or OAI identifier).
-        additional_protocol (str | None): Name of protocol that is used for additional metadata (OAI-PMH, DATAVERSE_API, HAL_API...)
-        additional_endpoint (str | None): Base endpoint URL for additional metadata
-        additional_format (str | None): Additional parameter that is needed for some endpoints
+    :param raw_metadata (str): The original metadata record (typically XML).
+    :param metadata_prefix (str): The metadata format identifier (e.g., "oai_dc", "oai_ddi25", "datacite").
+    :param identifier (str): Unique identifier of the record (e.g., DOI or OAI identifier).
+    :param additional_protocol (str | None): Name of protocol that is used for additional metadata (OAI-PMH, DATAVERSE_API, HAL_API...)
+    :param additional_endpoint (str | None): Base endpoint URL for additional metadata
+    :param additional_format (str | None): Additional parameter that is needed for some endpoints
 
-    Returns (raw_metadata, additional_metadata) or (raw_metadata, None) or (None, None) where:
-        - raw_metadata is the transformed (or original) metadata
-        - additional_metadata is either original metadata (if transformed), or fetched metadata from an external service
-        Returns (None, None) if transformation fails.
+    :return: tuple of (raw_metadata, additional_metadata), where raw_metadata is the
+            transformed (or original) metadata, and additional_metadata is
+            either the original metadata, externally fetched metadata, or None.
+            Returns (None, None) on failure.
     """
 
     # if schema is not DataCite, we will need to transform the XML
