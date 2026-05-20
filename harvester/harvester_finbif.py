@@ -17,7 +17,9 @@ logger = logging.getLogger(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Base URL and config for the FinBIF API
-API_BASE = "https://api.laji.fi"
+API_BASE = "https://api.gbif.org"
+API_ADDITIONAL = "https://tun.fi"
+KEY = "b1304814-56cc-434e-8d40-2b24fa21526f"
 COLLECTIONS_PAGE_SIZE = 1000
 SUBCOLLECTIONS_PAGE_SIZE = 1000
 MAX_CONCURRENT_REQUESTS = 5
@@ -29,10 +31,10 @@ retry_strategy = Retry(
 _FINBIF_CLIENT = httpx.Client(
     transport=RetryTransport(retry=retry_strategy),
     timeout=httpx.Timeout(120),
-    headers={"Authorization": f"Bearer {ACCESS_TOKEN}"}
+    #headers={"Authorization": f"Bearer {ACCESS_TOKEN}"}
 )
 _ASYNC_FINBIF_CLIENT = httpx.AsyncClient(
-    headers={"Authorization": f"Bearer {ACCESS_TOKEN}"},
+    #headers={"Authorization": f"Bearer {ACCESS_TOKEN}"},
     transport=RetryTransport(retry=retry_strategy),
     timeout=httpx.Timeout(120),
 )
@@ -394,13 +396,177 @@ async def harvest_finbif(run_info: dict) -> bool:
         shutdown_client()
         await shutdown_async_client()
 
+OAI_NS = "http://www.openarchives.org/OAI/2.0/"
+DC_NS = "http://datacite.org/schema/kernel-4"
+XSI_NS = "http://www.w3.org/2001/XMLSchema-instance"
+SCHEMA_LOCATION = "http://datacite.org/schema/kernel-4 https://schema.datacite.org/meta/kernel-4.5/metadata.xsd"
+
+def build_datacite_xml(record: dict) -> etree._Element:
+    dataset = record["dataset"]
+    additional = record["additional"]
+
+    # OAI-PMH wrapper
+    root = etree.Element(
+        f"{{{OAI_NS}}}record",
+        nsmap={None: OAI_NS, "xsi": XSI_NS},
+    )
+
+    # Header
+    header = etree.SubElement(root, f"{{{OAI_NS}}}header")
+    identifier_el = etree.SubElement(header, f"{{{OAI_NS}}}identifier")
+    identifier_el.text = f"doi:{dataset['doi']}"
+    datestamp_el = etree.SubElement(header, f"{{{OAI_NS}}}datestamp")
+    datestamp_el.text = dataset["modified"]
+
+    # Metadata
+    metadata = etree.SubElement(root, f"{{{OAI_NS}}}metadata")
+
+    # DataCite resource
+    resource = etree.SubElement(
+        metadata,
+        "resource",
+        nsmap={None: DC_NS, "xsi": XSI_NS},
+        attrib={f"{{{XSI_NS}}}schemaLocation": SCHEMA_LOCATION},
+    )
+
+    # identifier
+    etree.SubElement(resource, "identifier", identifierType="DOI").text = dataset["doi"]
+
+    # creators
+    creators_el = etree.SubElement(resource, "creators")
+    creator_el = etree.SubElement(creators_el, "creator")
+    etree.SubElement(creator_el, "creatorName", nameType="Organizational").text = additional["intellectualOwner"]
+
+    # titles
+    titles_el = etree.SubElement(resource, "titles")
+    etree.SubElement(titles_el, "title").text = dataset["title"]
+
+    # subjects
+    subjects_el = etree.SubElement(resource, "subjects")
+
+    # taxonomicCoverage -> split on comma
+    if "taxonomicCoverage" in additional:
+        for taxon in additional["taxonomicCoverage"].split(","):
+            el = etree.SubElement(subjects_el, "subject",
+                                  subjectScheme="GBIF Backbone Taxonomy",
+                                  schemeURI="https://www.gbif.org/species/search",
+                                  )
+            el.text = taxon.strip()
+
+    # geographicCoverage -> split on comma
+    if "geographicCoverage" in additional:
+        for place in additional["geographicCoverage"].split(","):
+            el = etree.SubElement(subjects_el, "subject",
+                                  subjectScheme="GeoNames",
+                                  schemeURI="https://www.geonames.org",
+                                  )
+            el.text = place.strip()
+
+    # coverageBasis -> plain subject
+    if "coverageBasis" in additional:
+        etree.SubElement(subjects_el, "subject").text = additional["coverageBasis"]
+
+    # publicationYear
+    etree.SubElement(resource, "publicationYear").text = dataset["created"][:4]
+
+    # resourceType
+    etree.SubElement(resource, "resourceType", resourceTypeGeneral="Dataset").text = ""
+
+    # descriptions
+    descriptions_el = etree.SubElement(resource, "descriptions")
+    description_el = etree.SubElement(descriptions_el, "description", descriptionType="Abstract")
+    description_el.text = dataset["description"]
+
+    return root
+
+
+def to_xml_string(record: dict) -> str:
+    root = build_datacite_xml(record)
+    return etree.tostring(root, pretty_print=True, xml_declaration=True, encoding="UTF-8").decode()
+
+def harvest_datasets(from_date: date | None) -> list[dict]:
+    logger.info(f'Getting datasets with from_date: {from_date}')
+
+    response = _FINBIF_CLIENT.get(f'{API_BASE}/v1/installation/{KEY}/dataset', params={"limit": 1000}, headers={"Accept": "application/json", "User-Agent": "EOSC Data Commons harvester"})
+    response.raise_for_status()
+    data = response.json()
+    # TODO: filter out datasets that are older than from_date
+    return data["results"]
+
+async def harvest_finbif2(run_info: dict) -> bool:
+
+    #print(run_info)
+
+    harvest_run_id = run_info.get("id")
+    from_date = run_info.get("from_date")
+    from_ = datetime.fromisoformat(from_date.replace("Z", "+00:00")).date() if from_date else None
+
+    logger.info(run_info)
+
+    if from_:
+        logger.info("Incremental harvest since %s", from_date)
+    else:
+        logger.info("First harvest, fetching all records.")
+
+    datasets = harvest_datasets(from_date)
+
+    dwc_urls = [
+        ep["url"]
+        for obj in datasets
+        for ep in obj["endpoints"]
+        if ep["type"] == "DWC_ARCHIVE"
+    ]
+
+    ids = [url.split('/')[-1].removesuffix('.zip') for url in dwc_urls]
+
+    #logger.info(ids)
+
+    results = await asyncio.gather(*[
+        _ASYNC_FINBIF_CLIENT.get(f'{API_ADDITIONAL}/{id_}', params={"format": "json"})
+        for id_ in ids
+    ])
+
+    additional_data = []
+    for response in results:
+        response.raise_for_status()
+        additional_data.append(response.json())
+
+    combined = []
+    for dataset, additional in zip(datasets, additional_data):
+        combined.append({"dataset": dataset, "additional": additional})
+
+    with open("finbif.json", "w") as f:
+        f.write(json.dumps(combined, indent=4))
+
+    #logger.info(len(data))
+    #logger.info(data[0])
+
+    #_ASYNC_FINBIF_CLIENT.get(f'{API_ADDITIONAL}/{id_}', params={"format": "json"})
+
+    '''
+    for dataset in datasets:
+        logger.info(dataset)
+        break
+    '''
+
+    return False
+
+async def harvest_finbif_fake(run_info: dict):
+    with open("finbif.json") as f:
+        combined = json.load(f)
+
+    for record in combined:
+        logger.info(to_xml_string(record))
+        
+
+    return False
 
 def run_harvester_finbif(run_info: dict) -> bool:
     """
     Entry point for FinBIF harvesting from main.py
     """
     try:
-        return asyncio.run(harvest_finbif(run_info))
+        return asyncio.run(harvest_finbif_fake(run_info))
     except Exception as e:
         logger.exception("FinBIF harvester crashed: %s", e)
         return False
