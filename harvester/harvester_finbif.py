@@ -4,7 +4,7 @@ import asyncio
 import logging
 import json
 import os
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone
 from lxml import etree
 from harvester.settings import settings
 from harvester.db_api_functions import send_harvest_event
@@ -20,9 +20,6 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 API_BASE = "https://api.gbif.org"
 API_ADDITIONAL = "https://tun.fi"
 KEY = "b1304814-56cc-434e-8d40-2b24fa21526f"
-COLLECTIONS_PAGE_SIZE = 1000
-SUBCOLLECTIONS_PAGE_SIZE = 1000
-MAX_CONCURRENT_REQUESTS = 5
 
 OAI_NS = "http://www.openarchives.org/OAI/2.0/"
 DC_NS = "http://datacite.org/schema/kernel-4"
@@ -77,7 +74,7 @@ def build_datacite_xml(record: dict) -> etree._Element:
     identifier_el = etree.SubElement(header, f"{{{OAI_NS}}}identifier")
     identifier_el.text = f"doi:{dataset['doi']}"
     datestamp_el = etree.SubElement(header, f"{{{OAI_NS}}}datestamp")
-    datestamp_el.text = dataset["modified"]
+    datestamp_el.text = datetime.fromisoformat(dataset["modified"]).date().isoformat()
 
     # Metadata
     metadata = etree.SubElement(root, f"{{{OAI_NS}}}metadata")
@@ -113,7 +110,7 @@ def build_datacite_xml(record: dict) -> etree._Element:
     # geographicCoverage -> split on comma
     if "geographicCoverage" in additional:
         for place in additional["geographicCoverage"].split(","):
-            el = etree.SubElement(subjects_el, "subject").text = place.strip()
+            etree.SubElement(subjects_el, "subject").text = place.strip()
 
     # coverageBasis -> plain subject
     if "coverageBasis" in additional:
@@ -137,7 +134,7 @@ def to_xml_string(record: dict) -> str:
     root = build_datacite_xml(record)
     return etree.tostring(root, pretty_print=True, xml_declaration=True, encoding="UTF-8").decode()
 
-def harvest_datasets(from_date: str | None) -> list[dict]:
+def harvest_datasets(from_date: datetime | None) -> list[dict]:
     logger.info(f'Getting datasets with from_date: {from_date}')
 
     response = _FINBIF_CLIENT.get(f'{API_BASE}/v1/installation/{KEY}/dataset', params={"limit": 1000}, headers={"Accept": "application/json", "User-Agent": "EOSC Data Commons harvester"})
@@ -146,10 +143,9 @@ def harvest_datasets(from_date: str | None) -> list[dict]:
     datasets =  data["results"]
 
     if from_date is not None:
-        since = datetime.fromisoformat(from_date)
         return [
             d for d in datasets
-            if datetime.fromisoformat(d["modified"]) > since
+            if datetime.fromisoformat(d["modified"]) > from_date
         ]
     return datasets
 
@@ -161,7 +157,7 @@ async def harvest_finbif(run_info: dict) -> bool:
 
     harvest_run_id = run_info.get("id")
     from_date = run_info.get("from_date")
-    from_ = datetime.fromisoformat(from_date.replace("Z", "+00:00")).date() if from_date else None
+    from_ = datetime.fromisoformat(from_date.replace("Z", "+00:00")) if from_date else None
 
     logger.info(run_info)
 
@@ -172,7 +168,7 @@ async def harvest_finbif(run_info: dict) -> bool:
 
     combined = []
     try:
-        datasets = harvest_datasets(from_date)
+        datasets = harvest_datasets(from_)
 
         dwc_urls = [
             ep["url"]
@@ -242,7 +238,6 @@ async def harvest_finbif(run_info: dict) -> bool:
         except Exception as e:
             logger.error("Unexpected error while processing record %s: %s", record_identifier, e)
             success = False
-            break
 
     logger.info(
         "Harvest summary: processed %s records, successfully sent %s of them to the warehouse, failed to send %s records.",
