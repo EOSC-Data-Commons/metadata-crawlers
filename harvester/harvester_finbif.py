@@ -8,6 +8,7 @@ from datetime import datetime, timezone, date
 from lxml import etree
 from harvester.settings import settings
 from harvester.db_api_functions import send_harvest_event
+from urllib.parse import quote
 
 ACCESS_TOKEN = settings.FINBIF_ACCESS_TOKEN
 
@@ -107,20 +108,12 @@ def build_datacite_xml(record: dict) -> etree._Element:
     # taxonomicCoverage -> split on comma
     if "taxonomicCoverage" in additional:
         for taxon in additional["taxonomicCoverage"].split(","):
-            el = etree.SubElement(subjects_el, "subject",
-                                  subjectScheme="GBIF Backbone Taxonomy",
-                                  schemeURI="https://www.gbif.org/species/search",
-                                  )
-            el.text = taxon.strip()
+            etree.SubElement(subjects_el, "subject").text = taxon.strip()
 
     # geographicCoverage -> split on comma
     if "geographicCoverage" in additional:
         for place in additional["geographicCoverage"].split(","):
-            el = etree.SubElement(subjects_el, "subject",
-                                  subjectScheme="GeoNames",
-                                  schemeURI="https://www.geonames.org",
-                                  )
-            el.text = place.strip()
+            el = etree.SubElement(subjects_el, "subject").text = place.strip()
 
     # coverageBasis -> plain subject
     if "coverageBasis" in additional:
@@ -144,14 +137,21 @@ def to_xml_string(record: dict) -> str:
     root = build_datacite_xml(record)
     return etree.tostring(root, pretty_print=True, xml_declaration=True, encoding="UTF-8").decode()
 
-def harvest_datasets(from_date: date | None) -> list[dict]:
+def harvest_datasets(from_date: str | None) -> list[dict]:
     logger.info(f'Getting datasets with from_date: {from_date}')
 
     response = _FINBIF_CLIENT.get(f'{API_BASE}/v1/installation/{KEY}/dataset', params={"limit": 1000}, headers={"Accept": "application/json", "User-Agent": "EOSC Data Commons harvester"})
     response.raise_for_status()
     data = response.json()
-    # TODO: filter out datasets that are older than from_date
-    return data["results"]
+    datasets =  data["results"]
+
+    if from_date is not None:
+        since = datetime.fromisoformat(from_date)
+        return [
+            d for d in datasets
+            if datetime.fromisoformat(d["modified"]) > since
+        ]
+    return datasets
 
 async def harvest_finbif(run_info: dict) -> bool:
     harvest_events = 0
@@ -216,13 +216,17 @@ async def harvest_finbif(run_info: dict) -> bool:
     for record in combined:
         record_counter += 1
         record_identifier = record["dataset"]["doi"]
-        # logger.info(to_xml_string(record))
+
+        datacite_xml = to_xml_string(record)
+
+        with open(f"finbif/{quote(record_identifier, safe="")}", "w") as f:
+            f.write(datacite_xml)
 
         try:
             event_payload = {
                 "record_identifier": record_identifier,
                 "datestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-                "raw_metadata": to_xml_string(record),
+                "raw_metadata": datacite_xml,
                 "additional_metadata": json.dumps(record),
                 "harvest_url": "https://api.laji.fi",
                 "repo_code": "FINBIF",
