@@ -29,6 +29,19 @@ SCHEMA_LOCATION = "http://datacite.org/schema/kernel-4 https://schema.datacite.o
 
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 
+_RIGHTS_MAP = {
+    "MY.intellectualRightsCC-BY": (
+        "http://creativecommons.org/licenses/by/4.0/",
+        "CC-BY-4.0",
+        "info:eu-repo/semantics/openAccess",
+    ),
+    "MY.intellectualRightsCC0": (
+        "http://creativecommons.org/publicdomain/zero/1.0/",
+        "CC0-1.0",
+        "info:eu-repo/semantics/openAccess",
+    ),
+}
+
 retry_strategy = Retry(
     total=8,  # Number of retries
     backoff_factor=0.5,  # Delay between retries (exponential backoff)
@@ -151,6 +164,14 @@ def build_datacite_xml(record: dict) -> str:
     descriptions_el = etree.SubElement(resource, "descriptions")
     description_el = etree.SubElement(descriptions_el, "description", descriptionType="Abstract")
     description_el.text = _HTML_TAG_RE.sub("", dataset["description"]).strip()
+
+    # rightsList
+    intellectual_rights = additional.get("intellectualRights")
+    if intellectual_rights in _RIGHTS_MAP:
+        rights_uri, rights_label, access_uri = _RIGHTS_MAP[intellectual_rights]
+        rights_list_el = etree.SubElement(resource, "rightsList")
+        etree.SubElement(rights_list_el, "rights", rightsURI=access_uri)
+        etree.SubElement(rights_list_el, "rights", rightsURI=rights_uri).text = rights_label
 
     return etree.tostring(root, pretty_print=True, xml_declaration=True, encoding="UTF-8").decode()
 
