@@ -132,6 +132,13 @@ def build_datacite_xml(record: dict) -> str:
         if family:
             etree.SubElement(contributor_el, "familyName").text = family
 
+    # dates
+    dates_el = etree.SubElement(resource, "dates")
+    etree.SubElement(dates_el, "date", dateType="Created").text = datetime.fromisoformat(
+        dataset["created"]).date().isoformat()
+    etree.SubElement(dates_el, "date", dateType="Updated").text = datetime.fromisoformat(
+        dataset["modified"]).date().isoformat()
+
     # publicationYear
     etree.SubElement(resource, "publicationYear").text = dataset["created"][:4]
 
