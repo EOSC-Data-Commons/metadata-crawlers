@@ -9,7 +9,7 @@ from harvester.harvester_oaipmh import transformation_and_additional_metadata, r
 # Test helpers (file loading & normalization)
 # -----------------------------
 def load_xml(filename):
-    path = Path(__file__).parent / "testdata" / filename
+    path = Path(__file__).parent / "testdata" / "transformation" /filename
     return path.read_text(encoding = "utf-8")
 
 
@@ -22,7 +22,7 @@ def normalize_xml(xml_string):
 
 
 def load_json(filename):
-    with open(Path(__file__).parent / "testdata" / filename, "r", encoding = "utf-8") as f:
+    with open(Path(__file__).parent / "testdata" / "transformation" / filename, "r", encoding = "utf-8") as f:
         return json.load(f)
 
 

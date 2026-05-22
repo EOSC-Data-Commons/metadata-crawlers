@@ -9,6 +9,7 @@ from lxml import etree
 from harvester.settings import settings
 from harvester.db_api_functions import send_harvest_event
 from urllib.parse import quote
+import re
 
 ACCESS_TOKEN = settings.FINBIF_ACCESS_TOKEN
 
@@ -25,6 +26,8 @@ OAI_NS = "http://www.openarchives.org/OAI/2.0/"
 DC_NS = "http://datacite.org/schema/kernel-4"
 XSI_NS = "http://www.w3.org/2001/XMLSchema-instance"
 SCHEMA_LOCATION = "http://datacite.org/schema/kernel-4 https://schema.datacite.org/meta/kernel-4.5/metadata.xsd"
+
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
 
 retry_strategy = Retry(
     total=8,  # Number of retries
@@ -135,12 +138,12 @@ def build_datacite_xml(record: dict) -> str:
     etree.SubElement(resource, "publisher").text = additional.get("publisherShortname", additional["intellectualOwner"])
 
     # resourceType
-    etree.SubElement(resource, "resourceType", resourceTypeGeneral="Dataset").text = ""
+    etree.SubElement(resource, "resourceType", resourceTypeGeneral="Dataset")
 
     # descriptions
     descriptions_el = etree.SubElement(resource, "descriptions")
     description_el = etree.SubElement(descriptions_el, "description", descriptionType="Abstract")
-    description_el.text = dataset["description"]
+    description_el.text = _HTML_TAG_RE.sub("", dataset["description"]).strip()
 
     return etree.tostring(root, pretty_print=True, xml_declaration=True, encoding="UTF-8").decode()
 
