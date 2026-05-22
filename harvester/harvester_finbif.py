@@ -59,7 +59,7 @@ async def shutdown_async_client():
         logger.error("Error closing async client: %s", e)
 
 
-def build_datacite_xml(record: dict) -> etree._Element:
+def build_datacite_xml(record: dict) -> str:
     dataset = record["dataset"]
     additional = record["additional"]
 
@@ -116,8 +116,23 @@ def build_datacite_xml(record: dict) -> etree._Element:
     if "coverageBasis" in additional:
         etree.SubElement(subjects_el, "subject").text = additional["coverageBasis"]
 
+    # contributors
+    if dataset["contacts"]:
+        contributors_el = etree.SubElement(resource, "contributors")
+        contact = dataset["contacts"][0]
+        contributor_el = etree.SubElement(contributors_el, "contributor", contributorType="ContactPerson")
+        given = contact.get("firstName", "")
+        family = contact.get("lastName", "")
+        etree.SubElement(contributor_el, "contributorName", nameType="Personal").text = f"{family}, {given}".strip(", ")
+        if given:
+            etree.SubElement(contributor_el, "givenName").text = given
+        if family:
+            etree.SubElement(contributor_el, "familyName").text = family
+
     # publicationYear
     etree.SubElement(resource, "publicationYear").text = dataset["created"][:4]
+
+    etree.SubElement(resource, "publisher").text = additional.get("publisherShortname", additional["intellectualOwner"])
 
     # resourceType
     etree.SubElement(resource, "resourceType", resourceTypeGeneral="Dataset").text = ""
@@ -127,11 +142,6 @@ def build_datacite_xml(record: dict) -> etree._Element:
     description_el = etree.SubElement(descriptions_el, "description", descriptionType="Abstract")
     description_el.text = dataset["description"]
 
-    return root
-
-
-def to_xml_string(record: dict) -> str:
-    root = build_datacite_xml(record)
     return etree.tostring(root, pretty_print=True, xml_declaration=True, encoding="UTF-8").decode()
 
 def harvest_datasets(from_date: datetime | None) -> list[dict]:
@@ -213,7 +223,7 @@ async def harvest_finbif(run_info: dict) -> bool:
         record_counter += 1
         record_identifier = record["dataset"]["doi"]
 
-        datacite_xml = to_xml_string(record)
+        datacite_xml = build_datacite_xml(record)
 
         with open(f"finbif/{quote(record_identifier, safe="")}", "w") as f:
             f.write(datacite_xml)
