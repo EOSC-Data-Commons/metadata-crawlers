@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 from lxml import etree
 from harvester.settings import settings
 from harvester.db_api_functions import send_harvest_event
-from urllib.parse import quote
 import re
 
 ACCESS_TOKEN = settings.FINBIF_ACCESS_TOKEN
@@ -263,8 +262,6 @@ async def harvest_finbif(run_info: dict) -> bool:
         for dataset, additional in zip(datasets, additional_data):
             combined.append({"dataset": dataset, "additional": additional})
 
-        with open("finbif.json", "w") as f:
-            f.write(json.dumps(combined, indent=4))
 
     except httpx.RequestError as e:
         logger.error("Network error while fetching collections: %s", e)
@@ -285,9 +282,6 @@ async def harvest_finbif(run_info: dict) -> bool:
         record_identifier = record["dataset"]["doi"]
 
         datacite_xml = build_datacite_xml(record)
-
-        with open(f"finbif/{quote(record_identifier, safe="")}", "w") as f:
-            f.write(datacite_xml)
 
         try:
             event_payload = {
