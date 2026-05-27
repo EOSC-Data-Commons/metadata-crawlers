@@ -10,6 +10,7 @@ class TestTransformationAndAdditionalMetadata(unittest.TestCase):
 
         datacite_xml = build_datacite_xml(finbif_json)
 
-        print(datacite_xml)
+        with open("tests/testdata/finbif/finbif_datacite.xml") as f:
+            expected = f.read()
 
-        self.assertIn("<title>HAMBI ABM yeast collection (ABM)</title>", datacite_xml)
+        self.assertEqual(datacite_xml, expected)

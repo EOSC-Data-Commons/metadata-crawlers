@@ -1,0 +1,52 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<record xmlns="http://www.openarchives.org/OAI/2.0/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <header>
+    <identifier>doi:10.15468/ad774n</identifier>
+    <datestamp>2026-05-14</datestamp>
+  </header>
+  <metadata>
+    <resource xmlns="http://datacite.org/schema/kernel-4" xsi:schemaLocation="http://datacite.org/schema/kernel-4 https://schema.datacite.org/meta/kernel-4.5/metadata.xsd">
+      <identifier identifierType="DOI">10.15468/ad774n</identifier>
+      <creators>
+        <creator>
+          <creatorName nameType="Organizational">Microbial Domain Biological Resource Center HAMBI</creatorName>
+        </creator>
+      </creators>
+      <titles>
+        <title>HAMBI ABM yeast collection (ABM)</title>
+      </titles>
+      <subjects>
+        <subject>Ascomycota</subject>
+        <subject>mostly Saccharomycotina</subject>
+        <subject>Europe</subject>
+        <subject>Finland</subject>
+        <subject>Industrial yeasts</subject>
+        <subject xml:lang="fi">HAMBI ABM hiivakokoelma (ABM)</subject>
+        <subject xml:lang="en">HAMBI ABM yeast collection (ABM)</subject>
+      </subjects>
+      <contributors>
+        <contributor contributorType="ContactPerson">
+          <contributorName nameType="Personal">Oivanen, Pekka</contributorName>
+          <givenName>Pekka</givenName>
+          <familyName>Oivanen</familyName>
+        </contributor>
+      </contributors>
+      <dates>
+        <date dateType="Created">2025-08-01</date>
+        <date dateType="Updated">2026-05-14</date>
+      </dates>
+      <publicationYear>2025</publicationYear>
+      <publisher>HAMBI</publisher>
+      <resourceType resourceTypeGeneral="Dataset"/>
+      <descriptions>
+        <description descriptionType="Abstract">Collection of yeasts</description>
+        <description descriptionType="Abstract" xml:lang="en">Collection of yeasts</description>
+        <description descriptionType="Abstract" xml:lang="fi">Hiivakantakokoelma</description>
+      </descriptions>
+      <rightsList>
+        <rights rightsURI="info:eu-repo/semantics/openAccess"/>
+        <rights rightsURI="http://creativecommons.org/licenses/by/4.0/">CC-BY-4.0</rights>
+      </rightsList>
+    </resource>
+  </metadata>
+</record>

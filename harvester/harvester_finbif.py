@@ -50,10 +50,8 @@ retry_strategy = Retry(
 _FINBIF_CLIENT = httpx.Client(
     transport=RetryTransport(retry=retry_strategy),
     timeout=httpx.Timeout(120),
-    #headers={"Authorization": f"Bearer {ACCESS_TOKEN}"}
 )
 _ASYNC_FINBIF_CLIENT = httpx.AsyncClient(
-    #headers={"Authorization": f"Bearer {ACCESS_TOKEN}"},
     transport=RetryTransport(retry=retry_strategy),
     timeout=httpx.Timeout(120),
 )
