@@ -188,6 +188,28 @@ def build_datacite_xml(record: dict) -> str:
 
     return etree.tostring(root, pretty_print=True, xml_declaration=True, encoding="UTF-8").decode()
 
+def filter_datasets_by_date(datasets: list[dict], from_date: datetime | None) -> list[dict]:
+    if from_date is None:
+        return datasets
+
+    filtered, skipped = [], []
+    for d in datasets:
+        modified = datetime.fromisoformat(d["modified"])
+        if modified > from_date:
+            logger.debug("KEEP %s: modified %s > from_date %s", d["doi"], modified.isoformat(), from_date.isoformat())
+            filtered.append(d)
+        else:
+            logger.debug("SKIP %s: modified %s <= from_date %s", d["doi"], modified.isoformat(), from_date.isoformat())
+            skipped.append(d)
+
+    logger.info(
+        "Filtered datasets by modified date > %s: %d kept, %d skipped",
+        from_date.isoformat(),
+        len(filtered),
+        len(skipped),
+    )
+    return filtered
+
 def harvest_datasets(from_date: datetime | None) -> list[dict]:
     logger.info(f'Getting datasets with from_date: {from_date}')
 
@@ -196,12 +218,7 @@ def harvest_datasets(from_date: datetime | None) -> list[dict]:
     data = response.json()
     datasets =  data["results"]
 
-    if from_date is not None:
-        return [
-            d for d in datasets
-            if datetime.fromisoformat(d["modified"]) > from_date
-        ]
-    return datasets
+    return filter_datasets_by_date(datasets, from_date)
 
 async def harvest_finbif(run_info: dict) -> bool:
     harvest_events = 0
