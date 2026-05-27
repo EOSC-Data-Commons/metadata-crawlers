@@ -26,6 +26,7 @@ OAI_NS = "http://www.openarchives.org/OAI/2.0/"
 DC_NS = "http://datacite.org/schema/kernel-4"
 XSI_NS = "http://www.w3.org/2001/XMLSchema-instance"
 SCHEMA_LOCATION = "http://datacite.org/schema/kernel-4 https://schema.datacite.org/meta/kernel-4.5/metadata.xsd"
+XML_NS = "http://www.w3.org/XML/1998/namespace"
 
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 
@@ -132,6 +133,12 @@ def build_datacite_xml(record: dict) -> str:
     if "coverageBasis" in additional:
         etree.SubElement(subjects_el, "subject").text = additional["coverageBasis"]
 
+    # longNameMultiLang -> subjects with lang
+    for lang, text in additional.get("longNameMultiLang", {}).items():
+        etree.SubElement(subjects_el, "subject",
+                         attrib={f"{{{XML_NS}}}lang": lang},
+                         ).text = text
+
     # contributors
     if dataset["contacts"]:
         contributors_el = etree.SubElement(resource, "contributors")
@@ -164,6 +171,14 @@ def build_datacite_xml(record: dict) -> str:
     descriptions_el = etree.SubElement(resource, "descriptions")
     description_el = etree.SubElement(descriptions_el, "description", descriptionType="Abstract")
     description_el.text = _HTML_TAG_RE.sub("", dataset["description"]).strip()
+
+    # multilang descriptions
+    for lang, text in additional.get("descriptionMultiLang", {}).items():
+        el = etree.SubElement(descriptions_el, "description",
+                              descriptionType="Abstract",
+                              attrib={f"{{{XML_NS}}}lang": lang},
+                              )
+        el.text = text
 
     # rightsList
     intellectual_rights = additional.get("intellectualRights")
