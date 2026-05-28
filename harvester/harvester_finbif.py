@@ -76,6 +76,7 @@ async def shutdown_async_client():
 def build_datacite_xml(record: dict) -> str:
     dataset = record["dataset"]
     additional = record["additional"]
+    dataset_id = record["id"]
 
     # OAI-PMH wrapper
     root = etree.Element(
@@ -159,10 +160,16 @@ def build_datacite_xml(record: dict) -> str:
     # publicationYear
     etree.SubElement(resource, "publicationYear").text = dataset["created"][:4]
 
+    # publisher
     etree.SubElement(resource, "publisher").text = additional.get("publisherShortname", additional["intellectualOwner"])
 
     # resourceType
     etree.SubElement(resource, "resourceType", resourceTypeGeneral="Dataset")
+
+    # alternateIdentifiers
+    alternate_ids = etree.SubElement(resource, "alternateIdentifiers")
+    alternate_id = etree.SubElement(alternate_ids, "alternateIdentifier", attrib={"alternateIdentifierType": "FinBIF"})
+    alternate_id.text = f"{dataset_id}"
 
     # descriptions
     descriptions_el = etree.SubElement(resource, "descriptions")
@@ -259,8 +266,8 @@ async def harvest_finbif(run_info: dict) -> bool:
             response.raise_for_status()
             additional_data.append(response.json())
 
-        for dataset, additional in zip(datasets, additional_data):
-            combined.append({"dataset": dataset, "additional": additional})
+        for dataset, additional, dataset_id in zip(datasets, additional_data, ids):
+            combined.append({"dataset": dataset, "additional": additional, "id": dataset_id})
 
 
     except httpx.RequestError as e:

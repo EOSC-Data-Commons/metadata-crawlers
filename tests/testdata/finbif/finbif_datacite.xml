@@ -38,6 +38,9 @@
       <publicationYear>2025</publicationYear>
       <publisher>HAMBI</publisher>
       <resourceType resourceTypeGeneral="Dataset"/>
+      <alternateIdentifiers>
+        <alternateIdentifier alternateIdentifierType="FinBIF">HR.4211</alternateIdentifier>
+      </alternateIdentifiers>
       <descriptions>
         <description descriptionType="Abstract">Collection of yeasts</description>
         <description descriptionType="Abstract" xml:lang="en">Collection of yeasts</description>
