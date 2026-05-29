@@ -39,7 +39,7 @@
       <publisher>HAMBI</publisher>
       <resourceType resourceTypeGeneral="Dataset"/>
       <alternateIdentifiers>
-        <alternateIdentifier alternateIdentifierType="FinBIF">HR.4211</alternateIdentifier>
+        <alternateIdentifier alternateIdentifierType="tun.fi identifier">HR.4211</alternateIdentifier>
       </alternateIdentifiers>
       <descriptions>
         <description descriptionType="Abstract">Collection of yeasts</description>
