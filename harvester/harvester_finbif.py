@@ -168,7 +168,7 @@ def build_datacite_xml(record: dict) -> str:
 
     # alternateIdentifiers
     alternate_ids = etree.SubElement(resource, "alternateIdentifiers")
-    alternate_id = etree.SubElement(alternate_ids, "alternateIdentifier", attrib={"alternateIdentifierType": "FinBIF"})
+    alternate_id = etree.SubElement(alternate_ids, "alternateIdentifier", attrib={"alternateIdentifierType": "tun.fi identifier"})
     alternate_id.text = f"{dataset_id}"
 
     # descriptions
