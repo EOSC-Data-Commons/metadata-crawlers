@@ -3,12 +3,12 @@ from httpx_retries import Retry, RetryTransport
 import asyncio
 import logging
 import json
-from typing import List, Dict, Generator, AsyncGenerator, Tuple
 import os
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone
 from lxml import etree
 from harvester.settings import settings
 from harvester.db_api_functions import send_harvest_event
+import re
 
 ACCESS_TOKEN = settings.FINBIF_ACCESS_TOKEN
 
@@ -17,10 +17,30 @@ logger = logging.getLogger(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Base URL and config for the FinBIF API
-API_BASE = "https://api.laji.fi"
-COLLECTIONS_PAGE_SIZE = 1000
-SUBCOLLECTIONS_PAGE_SIZE = 1000
-MAX_CONCURRENT_REQUESTS = 5
+API_BASE = "https://api.gbif.org"
+API_ADDITIONAL = "https://tun.fi"
+KEY = "b1304814-56cc-434e-8d40-2b24fa21526f"
+
+OAI_NS = "http://www.openarchives.org/OAI/2.0/"
+DC_NS = "http://datacite.org/schema/kernel-4"
+XSI_NS = "http://www.w3.org/2001/XMLSchema-instance"
+SCHEMA_LOCATION = "http://datacite.org/schema/kernel-4 https://schema.datacite.org/meta/kernel-4.5/metadata.xsd"
+XML_NS = "http://www.w3.org/XML/1998/namespace"
+
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+
+_RIGHTS_MAP = {
+    "MY.intellectualRightsCC-BY": (
+        "http://creativecommons.org/licenses/by/4.0/",
+        "CC-BY-4.0",
+        "info:eu-repo/semantics/openAccess",
+    ),
+    "MY.intellectualRightsCC0": (
+        "http://creativecommons.org/publicdomain/zero/1.0/",
+        "CC0-1.0",
+        "info:eu-repo/semantics/openAccess",
+    ),
+}
 
 retry_strategy = Retry(
     total=8,  # Number of retries
@@ -29,10 +49,8 @@ retry_strategy = Retry(
 _FINBIF_CLIENT = httpx.Client(
     transport=RetryTransport(retry=retry_strategy),
     timeout=httpx.Timeout(120),
-    headers={"Authorization": f"Bearer {ACCESS_TOKEN}"}
 )
 _ASYNC_FINBIF_CLIENT = httpx.AsyncClient(
-    headers={"Authorization": f"Bearer {ACCESS_TOKEN}"},
     transport=RetryTransport(retry=retry_strategy),
     timeout=httpx.Timeout(120),
 )
@@ -55,329 +73,201 @@ async def shutdown_async_client():
         logger.error("Error closing async client: %s", e)
 
 
-# GET COLLECTIONS:
-def fetch_collections() -> Generator[Dict, None, None]:
-    """
-    Fetch all collections from the FinBIF API.
+def build_datacite_xml(record: dict) -> str:
+    dataset = record["dataset"]
+    additional = record["additional"]
+    dataset_id = record["id"]
 
-    :yield: A collection record as a dictionary.
-    """
-    page = 1
-    while True:
-        params = {"lang": "en", "page": page, "pageSize": COLLECTIONS_PAGE_SIZE}
-        response = _FINBIF_CLIENT.get(f"{API_BASE}/collections", params=params)
-        response.raise_for_status()
-        data = response.json()
+    # OAI-PMH wrapper
+    root = etree.Element(
+        f"{{{OAI_NS}}}record",
+        nsmap={None: OAI_NS, "xsi": XSI_NS},
+    )
 
-        # Yield results from the current page
-        for result in data.get("results", []):
-            yield result
+    # Header
+    header = etree.SubElement(root, f"{{{OAI_NS}}}header")
+    identifier_el = etree.SubElement(header, f"{{{OAI_NS}}}identifier")
+    identifier_el.text = f"doi:{dataset['doi']}"
+    datestamp_el = etree.SubElement(header, f"{{{OAI_NS}}}datestamp")
+    datestamp_el.text = datetime.fromisoformat(dataset["modified"]).date().isoformat()
 
-        # Check if there are more pages
-        if "nextPage" not in data or not data["results"]:
-            break
-        page += 1
+    # Metadata
+    metadata = etree.SubElement(root, f"{{{OAI_NS}}}metadata")
 
-def process_collections(collections: List[Dict]) -> List[Dict]:
-    """
-    Process the collections to filter out those without children, and extract relevant metadata.
+    # DataCite resource
+    resource = etree.SubElement(
+        metadata,
+        "resource",
+        nsmap={None: DC_NS, "xsi": XSI_NS},
+        attrib={f"{{{XSI_NS}}}schemaLocation": SCHEMA_LOCATION},
+    )
 
-    :param collections: A list of collections as dictionaries.
-    :return: A list of filtered collections with relevant metadata.
-    """
-    filtered_collections = []
-    for collection in collections:
-        if not collection.get("hasChildren", False):
-            # Extract relevant metadata
-            filtered_collections.append({
-                "collection_id": collection.get("id"),
-                "collection_name": collection.get("collectionName"),
-                "collection_long_name": collection.get("longName"),
-                "collection_size": collection.get("collectionSize"),
-                "collection_type": collection.get("collectionType", "").removeprefix("MY.collectionType"),
-                "description": collection.get("description"),
-                "data_quality_description": collection.get("dataQualityDescription"),
-                "language": collection.get("language"),
-                "publisher_shortname": collection.get("publisherShortname"),
-                "intellectual_owner": collection.get("intellectualOwner"),
-                "taxonomic_coverage": collection.get("taxonomicCoverage"),
-                "geographic_coverage": collection.get("geographicCoverage"),
-                "temporal_coverage": collection.get("temporalCoverage"),
-                "date_created": collection.get("dateCreated"),
-                "date_edited": collection.get("dateEdited"),
-            })
-    return filtered_collections
+    # identifier
+    etree.SubElement(resource, "identifier", identifierType="DOI").text = dataset["doi"]
 
+    # creators
+    creators_el = etree.SubElement(resource, "creators")
+    creator_el = etree.SubElement(creators_el, "creator")
+    etree.SubElement(creator_el, "creatorName", nameType="Organizational").text = additional["intellectualOwner"]
 
-# GET SUBCOLLECTIONS:
-async def fetch_subcollection_page(collection_id: str, page: int) -> dict:
-    """
-    Fetch a single page of subcollections for a given collection.
+    # titles
+    titles_el = etree.SubElement(resource, "titles")
+    etree.SubElement(titles_el, "title").text = dataset["title"]
 
-    :param client: The AsyncClient instance.
-    :param collection_id: The ID of the collection.
-    :param page: The page number to fetch.
-    :return: The JSON response as a dictionary.
-    """
-    url = f"{API_BASE}/warehouse/query/unit/aggregate"
-    aggregate_by = [
-    "gathering.conversions.year",                       # year observations were collected
-    "gathering.country",                                # country of observation (or country code)
-    "gathering.interpretations.country",                # FinBIF country code
-    "gathering.interpretations.countryDisplayname",     # country name in Finnish
-    "gathering.interpretations.finnishMunicipality",    # FinBIF municipality code (only for Finnish municipalities)
-    "gathering.interpretations.municipalityDisplayname",# Finnish municipality name
-    "gathering.municipality",                           # municipality name as provided by the observer (free text, non-standardized)
-    "unit.linkings.taxon.id",                           # FinBIF taxon ID
-    "unit.linkings.taxon.nameEnglish",                  # taxon name in English
-    "unit.linkings.taxon.nameFinnish",                  # taxon name in Finnish
-    "unit.linkings.taxon.nameSwedish",                  # taxon name in Swedish
-    "unit.linkings.taxon.scientificName",               # taxon scientific name
-]
-    params = {
-        "aggregateBy": ",".join(aggregate_by),
-        "onlyCount": False,
-        "pageSize": SUBCOLLECTIONS_PAGE_SIZE,
-        "collectionId": collection_id,
-        "page": page,
-        "orderBy": "firstLoadDateMax DESC"
-    }
-    response = await _ASYNC_FINBIF_CLIENT.get(url, params=params)
+    # subjects
+    subjects_el = etree.SubElement(resource, "subjects")
+
+    # taxonomicCoverage -> split on comma
+    if "taxonomicCoverage" in additional:
+        for taxon in additional["taxonomicCoverage"].split(","):
+            etree.SubElement(subjects_el, "subject").text = taxon.strip()
+
+    # geographicCoverage -> split on comma
+    if "geographicCoverage" in additional:
+        for place in additional["geographicCoverage"].split(","):
+            etree.SubElement(subjects_el, "subject").text = place.strip()
+
+    # coverageBasis -> plain subject
+    if "coverageBasis" in additional:
+        etree.SubElement(subjects_el, "subject").text = additional["coverageBasis"]
+
+    # longNameMultiLang -> subjects with lang
+    for lang, text in additional.get("longNameMultiLang", {}).items():
+        etree.SubElement(subjects_el, "subject",
+                         attrib={f"{{{XML_NS}}}lang": lang},
+                         ).text = text
+
+    # contributors
+    if dataset["contacts"]:
+        contributors_el = etree.SubElement(resource, "contributors")
+        contact = dataset["contacts"][0]
+        contributor_el = etree.SubElement(contributors_el, "contributor", contributorType="ContactPerson")
+        given = contact.get("firstName", "")
+        family = contact.get("lastName", "")
+        etree.SubElement(contributor_el, "contributorName", nameType="Personal").text = f"{family}, {given}".strip(", ")
+        if given:
+            etree.SubElement(contributor_el, "givenName").text = given
+        if family:
+            etree.SubElement(contributor_el, "familyName").text = family
+
+    # dates
+    dates_el = etree.SubElement(resource, "dates")
+    etree.SubElement(dates_el, "date", dateType="Created").text = datetime.fromisoformat(
+        dataset["created"]).date().isoformat()
+    etree.SubElement(dates_el, "date", dateType="Updated").text = datetime.fromisoformat(
+        dataset["modified"]).date().isoformat()
+
+    # publicationYear
+    etree.SubElement(resource, "publicationYear").text = dataset["created"][:4]
+
+    # publisher
+    etree.SubElement(resource, "publisher").text = additional.get("publisherShortname", additional["intellectualOwner"])
+
+    # resourceType
+    etree.SubElement(resource, "resourceType", resourceTypeGeneral="Dataset")
+
+    # alternateIdentifiers
+    alternate_ids = etree.SubElement(resource, "alternateIdentifiers")
+    alternate_id = etree.SubElement(alternate_ids, "alternateIdentifier", attrib={"alternateIdentifierType": "tun.fi identifier"})
+    alternate_id.text = f"{dataset_id}"
+
+    # descriptions
+    descriptions_el = etree.SubElement(resource, "descriptions")
+    description_el = etree.SubElement(descriptions_el, "description", descriptionType="Abstract")
+    description_el.text = _HTML_TAG_RE.sub("", dataset["description"]).strip()
+
+    # multilang descriptions
+    for lang, text in additional.get("descriptionMultiLang", {}).items():
+        el = etree.SubElement(descriptions_el, "description",
+                              descriptionType="Abstract",
+                              attrib={f"{{{XML_NS}}}lang": lang},
+                              )
+        el.text = text
+
+    # rightsList
+    intellectual_rights = additional.get("intellectualRights")
+    if intellectual_rights in _RIGHTS_MAP:
+        rights_uri, rights_label, access_uri = _RIGHTS_MAP[intellectual_rights]
+        rights_list_el = etree.SubElement(resource, "rightsList")
+        etree.SubElement(rights_list_el, "rights", rightsURI=access_uri)
+        etree.SubElement(rights_list_el, "rights", rightsURI=rights_uri).text = rights_label
+
+    return etree.tostring(root, pretty_print=True, xml_declaration=True, encoding="UTF-8").decode()
+
+def filter_datasets_by_date(datasets: list[dict], from_date: datetime | None) -> list[dict]:
+    if from_date is None:
+        return datasets
+
+    filtered, skipped = [], []
+    for d in datasets:
+        modified = datetime.fromisoformat(d["modified"])
+        if modified > from_date:
+            logger.debug("KEEP %s: modified %s > from_date %s", d["doi"], modified.isoformat(), from_date.isoformat())
+            filtered.append(d)
+        else:
+            logger.debug("SKIP %s: modified %s <= from_date %s", d["doi"], modified.isoformat(), from_date.isoformat())
+            skipped.append(d)
+
+    logger.info(
+        "Filtered datasets by modified date > %s: %d kept, %d skipped",
+        from_date.isoformat(),
+        len(filtered),
+        len(skipped),
+    )
+    return filtered
+
+def harvest_datasets(from_date: datetime | None) -> list[dict]:
+    logger.info(f'Getting datasets with from_date: {from_date}')
+
+    response = _FINBIF_CLIENT.get(f'{API_BASE}/v1/installation/{KEY}/dataset', params={"limit": 1000}, headers={"Accept": "application/json", "User-Agent": "EOSC Data Commons harvester"})
     response.raise_for_status()
-    return response.json()
+    data = response.json()
+    datasets =  data["results"]
 
-async def iter_subcollections(collection_id: str, from_date: date | None) -> AsyncGenerator[Dict, None]:
-    """
-    Stream subcollections page-by-page using the existing fetch_subcollection_page() function and semaphore logic.
-    Use concurrent page fetching for initial harvest and sequential fetching for incremental harvest, stopping when firstLoadDateMax is older than from_date.
-    """
-    # Fetch the first page to determine the total number of pages
-    first_page = await fetch_subcollection_page(collection_id, page=1)
-    total_pages = first_page.get("lastPage", 1)
-    logger.info("Collection ID %s has %d pages of subcollections.", collection_id, total_pages)
+    return filter_datasets_by_date(datasets, from_date)
 
-    # incremental harvest mode
-    if from_date is not None:
-        page = 1
-        while page <= total_pages:
-            if page == 1:
-                page_data = first_page
-            else:
-                page_data = await fetch_subcollection_page(collection_id, page)
+async def harvest_finbif(run_info: dict) -> bool:
+    harvest_events = 0
+    failed_events = 0
+    record_counter = 0
+    success = True
 
-            results = page_data.get("results", [])
+    harvest_run_id = run_info.get("id")
+    from_date = run_info.get("from_date")
+    from_ = datetime.fromisoformat(from_date.replace("Z", "+00:00")) if from_date else None
 
-            if not results:
-                return
+    logger.info(run_info)
 
-            for result in results:
-                # date when the latest observation was added
-                first_load_str = result.get("firstLoadDateMax")
-                if first_load_str:
-                    record_date = datetime.strptime(first_load_str, "%Y-%m-%d").date()
-
-                    # early stop condition
-                    if record_date < from_date:
-                        logger.info("Stopping subcollection fetch for collection %s at page %d and date %s because subsequent records are older than from_date %s.", collection_id, page, record_date, from_date)
-                        return
-
-                yield result
-
-            page += 1
-
-    # initial harvest mode:
+    if from_:
+        logger.info("Incremental harvest since %s", from_date)
     else:
-        # Yield first page results
-        for result in first_page.get("results", []):
-            yield result
+        logger.info("First harvest, fetching all records.")
 
-        if total_pages == 1:
-            return
+    combined = []
+    try:
+        datasets = harvest_datasets(from_)
 
-        semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
-
-        async def fetch_with_semaphore(page: int):
-            async with semaphore:
-                return await fetch_subcollection_page(collection_id, page)
-
-        # Schedule remaining pages
-        tasks = [
-            fetch_with_semaphore(page)
-            for page in range(2, total_pages + 1)
+        dwc_urls = [
+            ep["url"]
+            for obj in datasets
+            for ep in obj["endpoints"]
+            if ep["type"] == "DWC_ARCHIVE"
         ]
 
-        for task  in asyncio.as_completed(tasks):
-            page_data = await task 
-            for result in page_data.get("results", []):
-                yield result
+        ids = [url.split('/')[-1].removesuffix('.zip') for url in dwc_urls]
 
+        results = await asyncio.gather(*[
+            _ASYNC_FINBIF_CLIENT.get(f'{API_ADDITIONAL}/{id_}', params={"format": "json"})
+            for id_ in ids
+        ])
 
-# CREATE RECORDS FROM SUBCOLLECTIONS:
-async def create_records(collection: Dict, from_date: date | None) -> AsyncGenerator[Dict, None]:
-    """
-    Create records from collection metadata and its subcollections.
+        additional_data = []
+        for response in results:
+            response.raise_for_status()
+            additional_data.append(response.json())
 
-    :param collection: A collection dictionary.
-    :return: Async generator yielding records.
-    """
-    parent_id = collection["collection_id"]
-    logger.info("Fetching subcollections for collection ID: %s", parent_id)
-
-    async for subcollection in iter_subcollections(parent_id, from_date):
-        record = {
-            "gathering_year": subcollection['aggregateBy'].get("gathering.conversions.year"),
-            "gathering_country": subcollection['aggregateBy'].get("gathering.country"),
-            "gathering_country_code": subcollection['aggregateBy'].get("gathering.interpretations.country", "").removeprefix("http://tun.fi/"),
-            "gathering_country_finnish": subcollection['aggregateBy'].get("gathering.interpretations.countryDisplayname"),
-            "gathering_municipality": subcollection['aggregateBy'].get("gathering.municipality"),
-            "gathering_municipality_code": subcollection['aggregateBy'].get("gathering.interpretations.finnishMunicipality", "").removeprefix("http://tun.fi/"),
-            "gathering_municipality_finnish": subcollection['aggregateBy'].get("gathering.interpretations.municipalityDisplayname"),
-            "species_code": subcollection['aggregateBy'].get("unit.linkings.taxon.id", "").removeprefix("http://tun.fi/").replace("https://www.gbif.org/species/", "gbif:"),
-            "species_scientific_name": subcollection['aggregateBy'].get("unit.linkings.taxon.scientificName"),
-            "species_english_name": subcollection['aggregateBy'].get("unit.linkings.taxon.nameEnglish"),
-            "species_finnish_name": subcollection['aggregateBy'].get("unit.linkings.taxon.nameFinnish"),
-            "species_swedish_name": subcollection['aggregateBy'].get("unit.linkings.taxon.nameSwedish"),
-            "count": subcollection.get("count"),
-            "oldest_record": subcollection.get("oldestRecord"),
-            "newest_record": subcollection.get("newestRecord"),
-            "first_date_added": subcollection.get("firstLoadDateMin"),
-            "last_date_added": subcollection.get("firstLoadDateMax")
-        }
-        record.update(collection)
-        yield record
-
-
-#PROCESS RECORDS:
-def finbif_dict_to_xml(record: dict) -> str:
-    """
-    Convert a dictionary record to an XML (to be sent to XSLT).
-
-    :param record: A dictionary containing the record data.
-    :return: A string containing the XML representation of the record.
-    """
-    root = etree.Element("record")
-
-    for key, value in record.items():
-        if value is None or value == "":
-            continue
-        el = etree.SubElement(root, key)
-        el.text = str(value)
-
-    return etree.tostring(root, pretty_print=True, encoding="UTF-8").decode()
-
-def apply_xslt_transform(xml_record: str, transform) -> Tuple[str, str]:
-    """
-    Apply a precompiled XSLT transform to an XML record.
-
-    :param xml_record: FinBIF XML record as string
-    :param transform: Compiled lxml.etree.XSLT object
-    :return: 
-        - Datacite XML string
-        - Extracted identifier string
-    """
-    try:
-        record = etree.fromstring(xml_record.encode("utf-8"))
-        result_tree = transform(record)
-        identifier_nodes = result_tree.xpath(
-            "//*[local-name()='identifier']"
-        )
-        identifier = identifier_nodes[0].text if identifier_nodes else None
-        datacite_xml = etree.tostring(result_tree, pretty_print=True, encoding="UTF-8").decode("utf-8")
-        return datacite_xml, identifier
-    except Exception as e:
-        logger.warning("Transformation failed: %s", e)
-        return None, None
-    
-
-# MAIN HARVESTER:
-async def harvest_finbif(run_info: dict) -> bool:
-    """
-    Function to fetch and process collections from the FinBIF API.
-    """
-
-    try:
-        record_counter = 0
-        harvest_events = 0
-        failed_events = 0
-
-        harvest_run_id = run_info.get("id")
-        from_date = run_info.get("from_date")
-        from_ = datetime.fromisoformat(from_date.replace("Z", "+00:00")).date() if from_date else None
-
-        if from_:
-            logger.info("Incremental harvest since %s", from_date)
-        else:
-            logger.info("First harvest, fetching all records.")
-
-        # Fetch all collections
-        all_collections = list(fetch_collections())
-        logger.info("Fetched %d collections.", len(all_collections))
-        # Process collections
-        filtered_collections = process_collections(all_collections)
-        # Log the number of collections without children
-        logger.info("Found %s collections without children.", len(filtered_collections))
-
-        XSLT_PATH = os.path.join(BASE_DIR, "finbif_to_datacite.xsl")
-        xslt_doc = etree.parse(XSLT_PATH)
-        transform = etree.XSLT(xslt_doc)
-
-        success = True
-
-        for collection in filtered_collections:
-            async for record in create_records(collection, from_):
-                record_counter += 1
-                if record_counter % 1000 == 0:
-                    logger.info("Processed %d records so far", record_counter)
-
-                xml_record = finbif_dict_to_xml(record)
-                datacite_record, record_identifier = apply_xslt_transform(
-                    xml_record,
-                    transform
-                )
-
-                if not record_identifier:
-                    logger.warning("Missing identifier, skipping record")
-                    continue
-
-                if not datacite_record:
-                    logger.warning(
-                        "Failed DataCite transform for %s:%s:%s:%s",
-                        record['collection_id'],
-                        record['gathering_year'],
-                        record.get('gathering_municipality_code') or record.get('gathering_country_code'),
-                        record['species_code']
-                    )
-                    continue
-
-                try:
-                    event_payload = {
-                        "record_identifier": record_identifier,
-                        "datestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-                        "raw_metadata": datacite_record,
-                        "additional_metadata": json.dumps(record),
-                        "harvest_url": API_BASE,
-                        "repo_code": "FINBIF",
-                        "harvest_run_id": harvest_run_id,
-                        "is_deleted": False,
-                    }
-
-                    if send_harvest_event(event_payload):
-                        harvest_events += 1
-                    else:
-                        failed_events += 1
-
-                except Exception as e:
-                    logger.error("Unexpected error while processing record %s: %s", record_identifier, e)
-                    success = False
-
-        logger.info(
-            "Harvest summary: processed %s records, successfully sent %s of them to the warehouse, failed to send %s records.",
-            record_counter,
-            harvest_events,
-            failed_events
-        )
-
-        return success
+        for dataset, additional, dataset_id in zip(datasets, additional_data, ids):
+            combined.append({"dataset": dataset, "additional": additional, "id": dataset_id})
 
 
     except httpx.RequestError as e:
@@ -387,13 +277,48 @@ async def harvest_finbif(run_info: dict) -> bool:
         logger.error("HTTP error while fetching collections: %s", e)
         return False
     except Exception as e:
-        logger.error("Unexpected error: %s", e)
+        logger.error(f"Unexpected error while harvesting datasets: {e}")
         return False
 
     finally:
         shutdown_client()
         await shutdown_async_client()
 
+    for record in combined:
+        record_counter += 1
+        record_identifier = record["dataset"]["doi"]
+
+        datacite_xml = build_datacite_xml(record)
+
+        try:
+            event_payload = {
+                "record_identifier": record_identifier,
+                "datestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "raw_metadata": datacite_xml,
+                "additional_metadata": json.dumps(record),
+                "harvest_url": API_BASE,
+                "repo_code": "FINBIF",
+                "harvest_run_id": harvest_run_id,
+                "is_deleted": False,
+            }
+
+            if send_harvest_event(event_payload):
+                harvest_events += 1
+            else:
+                failed_events += 1
+
+        except Exception as e:
+            logger.error("Unexpected error while processing record %s: %s", record_identifier, e)
+            success = False
+
+    logger.info(
+        "Harvest summary: processed %s records, successfully sent %s of them to the warehouse, failed to send %s records.",
+        record_counter,
+        harvest_events,
+        failed_events
+    )
+
+    return success
 
 def run_harvester_finbif(run_info: dict) -> bool:
     """
