@@ -296,7 +296,7 @@ async def harvest_finbif(run_info: dict) -> bool:
                 "datestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 "raw_metadata": datacite_xml,
                 "additional_metadata": json.dumps(record),
-                "harvest_url": "https://api.laji.fi",
+                "harvest_url": API_BASE,
                 "repo_code": "FINBIF",
                 "harvest_run_id": harvest_run_id,
                 "is_deleted": False,
