@@ -45,7 +45,7 @@ def fetch_projects_data(base_api_url: str, from_date, headers) -> list:
     projects = []
     page = 1
 
-    while len(projects) < total:
+    while len(projects) < 100:
         response = requests.get(
             f"{base_api_url}/projects",
             headers = headers,
@@ -67,6 +67,40 @@ def fetch_projects_data(base_api_url: str, from_date, headers) -> list:
         return filtered_projects
     else:
         return projects
+
+
+
+def build_description(project) -> str:
+    meta = project["metadata"]
+    sentences = []
+
+    # METHOD
+    method = meta.get("METHOD")
+    if method:
+        sentences.append(f"The dataset was generated using {method}.")
+
+    # SYSKEYS
+    syskeys = meta.get("SYSKEYS") or []
+    if syskeys:
+        sentences.append(f"he system is composed of the following components: {', '.join(syskeys)}.")
+
+    # DOMAINS
+    domains = meta.get("DOMAINS") or []
+    if domains:
+        clean_domains = ", ".join(domains)
+        sentences.append(
+            f"The system relates to the following domains: {clean_domains}."
+        )
+
+    # ANALYSES
+    analyses = project.get("analyses") or []
+    if analyses:
+        pretty = ", ".join(analyses)
+        sentences.append(
+            f"The dataset includes the following analyses: {pretty}."
+        )
+
+    return " ".join(sentences)
 
 
 
@@ -141,17 +175,6 @@ def mdposit_data_to_datacite(project: dict):
     # RESOURCE TYPE
     ET.SubElement(resource, "resourceType", resourceTypeGeneral="Dataset").text = "Molecular Dynamics Trajectory"
 
-    # SUBJECTS
-    subjects = ET.SubElement(resource, "subjects")
-    for key in meta.get("SYSKEYS") or []:
-        ET.SubElement(subjects, "subject").text = key
-
-    for domain in meta.get("DOMAINS") or []:
-        ET.SubElement(subjects, "subject").text = domain
-
-    if meta.get("METHOD"):
-        ET.SubElement(subjects, "subject").text = meta.get("METHOD")
-
     # CONTRIBUTORS
     if meta.get("CONTACT"):
         contributors = ET.SubElement(resource, "contributors")
@@ -168,17 +191,15 @@ def mdposit_data_to_datacite(project: dict):
 
     # RELATED IDENTIFIERS
     related = ET.SubElement(resource, "relatedIdentifiers")
-    # PDB IDs
+    # PDB
     for pdbid in meta.get("PDBIDS") or []:
         ET.SubElement(related, "relatedIdentifier", relatedIdentifierType = "URL", relationType = "IsDerivedFrom").text = f"https://www.rcsb.org/structure/{pdbid}"
 
-    # UniProt references
+    # UniProt
     for ref in meta.get("REFERENCES") or []:
         ET.SubElement(related, "relatedIdentifier", relatedIdentifierType = "URL", relationType = "References").text = f"https://www.uniprot.org/uniprot/{ref}"
 
-    # {"metadata.GROUPS":{"$regex":"IRB Barcelona"}}
-
-    # DOI from citation
+    # DOI
     citation = meta.get("CITATION") or ""
     if citation:
         if "https://doi.org/" in citation:
@@ -202,8 +223,10 @@ def mdposit_data_to_datacite(project: dict):
 
     # DESCRIPTIONS
     descriptions = ET.SubElement(resource, "descriptions")
+    description_text = build_description(project)
     if meta.get("DESCRIPTION"):
-        ET.SubElement(descriptions, "description", descriptionType = "Abstract").text = meta["DESCRIPTION"]
+        description_text = meta["DESCRIPTION"].strip() + " " + description_text
+    ET.SubElement(descriptions, "description", descriptionType="Abstract").text = description_text
 
     xml_str = ET.tostring(record, encoding="unicode")
     xml_pretty = minidom.parseString(xml_str).toprettyxml(indent="  ")
