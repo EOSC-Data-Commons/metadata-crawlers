@@ -249,12 +249,13 @@ def run_harvester_mdposit(run_info: dict) -> bool:
         mdposit_data_projects = fetch_projects_data(harvest_url, from_date, headers)
         for project in mdposit_data_projects:
             mdposit_xml, identifier, datestamp = mdposit_data_to_datacite(project)
+            additional_file_metadata = ", ".join(project.get("files", []))
 
             event_payload = {
                 "record_identifier": identifier,
                 "datestamp": datestamp,
                 "raw_metadata": mdposit_xml,
-                "additional_metadata": None,
+                "additional_metadata": additional_file_metadata,
                 "harvest_url": harvest_url,
                 "repo_code": "MDDB",
                 "harvest_run_id": run_info.get("id"),
