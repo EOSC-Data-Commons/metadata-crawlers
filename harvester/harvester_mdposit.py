@@ -1,4 +1,5 @@
 import logging, os, requests, xml.etree.ElementTree as ET, time, mimetypes
+from datetime import datetime
 from .db_api_functions import send_harvest_event
 from xml.dom import minidom
 
@@ -25,28 +26,26 @@ def guess_format(filename: str) -> str:
 
 
 
-def fetch_projects_summary() -> dict:
-    url = "https://mdposit.mddbr.eu/api/rest/v1/projects/summary"
-    headers = {"Accept": "application/json"}
+def fetch_projects_summary(base_api_url, headers) -> dict:
+    url = f"{base_api_url}/projects/summary"
     response = requests.get(url, headers = headers, timeout = 30)
     response.raise_for_status()
     return response.json()
 
 
 
-def fetch_projects_data(base_api_url: str) -> list:
+def fetch_projects_data(base_api_url: str, from_date, headers) -> list:
     """
     Fetch all projects from the MDposit API using pagination.
     """
-    project_summary = fetch_projects_summary()
+    project_summary = fetch_projects_summary(base_api_url, headers)
     total = project_summary["projectsCount"]
     print(f"Total projects: {total}")
 
-    all_projects = []
-    headers = {"Accept": "application/json"}
+    projects = []
     page = 1
 
-    while len(all_projects) < total:
+    while len(projects) < total:
         response = requests.get(
             f"{base_api_url}/projects",
             headers = headers,
@@ -55,12 +54,19 @@ def fetch_projects_data(base_api_url: str) -> list:
         )
         response.raise_for_status()
         data = response.json()
-        all_projects.extend(data["projects"])
-        print(f"Fetched page {page}, total so far: {len(all_projects)}")
+        projects.extend(data["projects"])
+        print(f"Fetched page {page}, total so far: {len(projects)}")
         page += 1
         time.sleep(1)
 
-    return all_projects
+    if from_date:
+        filtered_projects = [
+            p for p in projects
+            if p.get("creationDate") and datetime.fromisoformat(p["creationDate"].replace("Z", "+00:00")) > datetime.fromisoformat(from_date.replace("Z", "+00:00"))
+        ]
+        return filtered_projects
+    else:
+        return projects
 
 
 
@@ -170,6 +176,8 @@ def mdposit_data_to_datacite(project: dict):
     for ref in meta.get("REFERENCES") or []:
         ET.SubElement(related, "relatedIdentifier", relatedIdentifierType = "URL", relationType = "References").text = f"https://www.uniprot.org/uniprot/{ref}"
 
+    # {"metadata.GROUPS":{"$regex":"IRB Barcelona"}}
+
     # DOI from citation
     citation = meta.get("CITATION") or ""
     if citation:
@@ -212,8 +220,10 @@ def run_harvester_mdposit(run_info: dict) -> bool:
 
         config = run_info.get("endpoint_config")
         harvest_url = config.get("harvest_url")
+        from_date = run_info.get("from_date")
+        headers = {"Accept": "application/json"}
 
-        mdposit_data_projects = fetch_projects_data(harvest_url)
+        mdposit_data_projects = fetch_projects_data(harvest_url, from_date, headers)
         for project in mdposit_data_projects:
             mdposit_xml, identifier, datestamp = mdposit_data_to_datacite(project)
 
@@ -222,7 +232,7 @@ def run_harvester_mdposit(run_info: dict) -> bool:
                 "datestamp": datestamp,
                 "raw_metadata": mdposit_xml,
                 "additional_metadata": None,
-                "harvest_url": "https://mdposit.mddbr.eu/api/rest/v1",
+                "harvest_url": harvest_url,
                 "repo_code": "MDDB",
                 "harvest_run_id": run_info.get("id"),
                 "is_deleted": False
