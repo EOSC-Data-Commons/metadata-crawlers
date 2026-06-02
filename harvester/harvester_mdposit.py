@@ -82,7 +82,7 @@ def build_description(project) -> str:
     # SYSKEYS
     syskeys = meta.get("SYSKEYS") or []
     if syskeys:
-        sentences.append(f"he system is composed of the following components: {', '.join(syskeys)}.")
+        sentences.append(f"The system is composed of the following components: {', '.join(syskeys)}.")
 
     # DOMAINS
     domains = meta.get("DOMAINS") or []
@@ -167,13 +167,13 @@ def mdposit_data_to_datacite(project: dict):
     ET.SubElement(titles, "title").text = meta.get("NAME", "")
 
     # PUBLISHER
-    ET.SubElement(resource, "publisher").text = "MDposit"
+    # ET.SubElement(resource, "publisher").text = "MDposit"
 
     # PUBLICATION YEAR
-    ET.SubElement(resource, "publicationYear").text = creation_date[:4]
+    # ET.SubElement(resource, "publicationYear").text = creation_date[:4]
 
     # RESOURCE TYPE
-    ET.SubElement(resource, "resourceType", resourceTypeGeneral="Dataset").text = "Molecular Dynamics Trajectory"
+    ET.SubElement(resource, "resourceType", resourceTypeGeneral="Dataset").text = "Molecular Dynamics Simulations"
 
     # CONTRIBUTORS
     if meta.get("CONTACT"):
@@ -223,9 +223,10 @@ def mdposit_data_to_datacite(project: dict):
 
     # DESCRIPTIONS
     descriptions = ET.SubElement(resource, "descriptions")
-    description_text = build_description(project)
+    # description_text = build_description(project)
     if meta.get("DESCRIPTION"):
-        description_text = meta["DESCRIPTION"].strip() + " " + description_text
+        description_text = meta["DESCRIPTION"].strip()
+    description_text = build_description(project) + " " + description_text
     ET.SubElement(descriptions, "description", descriptionType="Abstract").text = description_text
 
     xml_str = ET.tostring(record, encoding="unicode")
