@@ -1,4 +1,4 @@
-import logging, os, requests, xml.etree.ElementTree as ET, time, mimetypes
+import logging, os, requests, xml.etree.ElementTree as ET, time, mimetypes, json
 from datetime import datetime
 from .db_api_functions import send_harvest_event
 from xml.dom import minidom
@@ -9,9 +9,25 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def guess_format(filename: str) -> str:
+    """
+    Determine the MIME type of a file based on its filename extension.
+
+    Uses Python's built-in mimetype detection and provides custom
+    fallbacks for scientific file formats that are not recognized
+    by the standard library.
+
+    Args:
+        filename: Name of the file whose MIME type should be determined.
+
+    Returns:
+        A MIME type string (e.g. "application/json",
+        "chemical/x-pdb", "application/octet-stream").
+
+    Notes:
+        Unknown file types default to "application/octet-stream".
+    """
     mime, _ = mimetypes.guess_type(filename)
 
-    # fallback for unknown scientific formats
     if mime is None:
         ext = filename.lower().split(".")[-1]
         custom_map = {
@@ -27,6 +43,20 @@ def guess_format(filename: str) -> str:
 
 
 def fetch_projects_summary(base_api_url, headers) -> dict:
+    """
+    Retrieve project summary statistics from the MDposit API.
+
+    This endpoint is used to obtain metadata about the repository,
+    including the total number of available projects.
+
+    Args:
+        base_api_url: Base URL of the MDposit API.
+        headers: HTTP headers to include in the request.
+
+    Returns:
+        Dictionary containing summary information returned by
+        the API.
+    """
     url = f"{base_api_url}/projects/summary"
     response = requests.get(url, headers = headers, timeout = 30)
     response.raise_for_status()
@@ -34,9 +64,23 @@ def fetch_projects_summary(base_api_url, headers) -> dict:
 
 
 
-def fetch_projects_data(base_api_url: str, from_date, headers) -> list:
+def fetch_all_projects_data(base_api_url: str, headers) -> list:
     """
-    Fetch all projects from the MDposit API using pagination.
+    Retrieve all projects from the MDposit API.
+
+    Projects are fetched in batches using paginated requests until
+    all available records have been collected.
+
+    Args:
+        base_api_url: Base URL of the MDposit API.
+        headers: HTTP headers to include in API requests.
+
+    Returns:
+        List of project dictionaries returned by the API.
+
+    Notes:
+        A one-second delay is applied between requests to avoid
+        overwhelming the API.
     """
     project_summary = fetch_projects_summary(base_api_url, headers)
     total = project_summary["projectsCount"]
@@ -59,18 +103,82 @@ def fetch_projects_data(base_api_url: str, from_date, headers) -> list:
         page += 1
         time.sleep(1)
 
-    if from_date:
-        filtered_projects = [
-            p for p in projects
-            if p.get("creationDate") and datetime.fromisoformat(p["creationDate"].replace("Z", "+00:00")) > datetime.fromisoformat(from_date.replace("Z", "+00:00"))
-        ]
-        return filtered_projects
-    else:
-        return projects
+    return projects
+
+
+
+def fetch_incremental_projects_data(base_api_url: str, from_date, headers) -> list:
+    """
+    Retrieve projects updated after a specified date.
+
+    Performs an incremental harvest by requesting only projects
+    whose update date is greater than the supplied timestamp.
+
+    The method first determines the total number of matching
+        projects and then retrieves them using paginated requests.
+
+    Args:
+        base_api_url: Base URL of the MDposit API.
+        from_date: ISO-formatted date used as the lower bound for project updates.
+        headers: HTTP headers to include in API requests.
+
+    Returns:
+        List of project dictionaries updated after the specified date.
+
+    Notes:
+        A one-second delay is applied between requests to avoid
+        overwhelming the API.
+    """
+    
+    query = {"updateDate": {"$gt": from_date}}
+    
+    # inital request just to see how many filtered projects there are
+    response = requests.get(
+        f"{base_api_url}/projects",
+        headers = headers,
+        params = {"limit": 0, "page": 1, "query": json.dumps(query)},
+        timeout = 30
+    )
+
+    response.raise_for_status()
+    data = response.json()
+    number_of_filtered_objects = data["filteredCount"]
+
+    # fetching all filtered projects 
+    projects = []
+    page = 1
+    while len(projects) < number_of_filtered_objects:
+        response = requests.get(
+            f"{base_api_url}/projects",
+            headers = headers,
+            params = {"limit": 100, "page": page, "query": json.dumps(query)},
+            timeout = 30
+        )
+        response.raise_for_status()
+        data = response.json()
+        projects.extend(data["projects"])
+        print(f"Fetched page {page}, total so far: {len(projects)}")
+        page += 1
+        time.sleep(1)
+    return projects
 
 
 
 def build_description(project) -> str:
+    """
+    Generate a human-readable dataset description from project metadata.
+
+    Constructs descriptive sentences using selected metadata fields
+    such as simulation method, system components, domains, and
+    available analyses.
+
+    Args:
+        project: Project dictionary returned by the MDposit API.
+
+    Returns:
+        A textual description suitable for inclusion in metadata
+        records and discovery systems.
+    """
     meta = project["metadata"]
     sentences = []
 
@@ -105,6 +213,20 @@ def build_description(project) -> str:
 
 
 def mdposit_data_to_datacite(project: dict):
+    """
+    Convert an MDposit project record into a DataCite XML record.
+
+    Args:
+        project: Project dictionary obtained from the MDposit API.
+
+    Returns:
+        A tuple containing:
+            - xml_pretty (str): Formatted DataCite XML record.
+            - identifier (str): Dataset URL identifier.
+            - datestamp (str): Record update or creation date
+              in YYYY-MM-DD format.
+    """
+
     meta = project["metadata"]
 
     # NAMESPACES
@@ -223,7 +345,6 @@ def mdposit_data_to_datacite(project: dict):
 
     # DESCRIPTIONS
     descriptions = ET.SubElement(resource, "descriptions")
-    # description_text = build_description(project)
     if meta.get("DESCRIPTION"):
         description_text = meta["DESCRIPTION"].strip()
     description_text = build_description(project) + " " + description_text
@@ -236,6 +357,26 @@ def mdposit_data_to_datacite(project: dict):
 
 
 def run_harvester_mdposit(run_info: dict) -> bool:
+    """
+    Depending on the supplied configuration, performs either a full
+    harvest or an incremental harvest, converts each project into
+    DataCite XML, and publishes harvest events to the data warehouse.
+
+    Args:
+        run_info: Harvest execution configuration containing:
+            - endpoint_config.harvest_url
+            - from_date (optional)
+            - id (harvest run identifier)
+
+    Returns:
+        True if all harvest events were successfully sent;
+        False if any failures occurred or an unexpected error
+        was encountered.
+
+    Raises:
+        No exceptions are propagated. Unexpected errors are logged
+        and result in a False return value.
+    """
 
     try:
         record_count = 0
@@ -247,7 +388,10 @@ def run_harvester_mdposit(run_info: dict) -> bool:
         from_date = run_info.get("from_date")
         headers = {"Accept": "application/json"}
 
-        mdposit_data_projects = fetch_projects_data(harvest_url, from_date, headers)
+        if not from_date:
+            mdposit_data_projects = fetch_all_projects_data(harvest_url, headers)
+        else:
+            mdposit_data_projects = fetch_incremental_projects_data(harvest_url, from_date, headers)
         for project in mdposit_data_projects:
             mdposit_xml, identifier, datestamp = mdposit_data_to_datacite(project)
             additional_file_metadata = ", ".join(project.get("files", []))
