@@ -10,7 +10,6 @@ from harvester.settings import settings
 from harvester.db_api_functions import send_harvest_event
 import re
 
-ACCESS_TOKEN = settings.FINBIF_ACCESS_TOKEN
 
 logger = logging.getLogger(__name__)
 
