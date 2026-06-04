@@ -243,8 +243,11 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
         harvest_params = config.get("harvest_params")
         metadata_prefix = harvest_params.get("metadata_prefix", "oai_dc")
         sets = harvest_params.get("set") if harvest_params.get("set") else [None]
+        ids = harvest_params.get("ids")
         code = config.get("code")
-        
+
+        logger.info(f"harvest params: {harvest_params}")
+
         # here we define for which repositories we need to add timeout in order get back all the records from them
         repository_name = config.get("name")
         need_timeout = False
@@ -254,86 +257,94 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
         # harvesting
         with Scythe(harvest_url, timeout=180, max_retries=3, default_retry_after=60) as client:
 
-            # if we have more than one set then we iterate in for loop for each set
-            for set_name in sets:
+            if ids:
+                logger.info("Harvesting with a list of ids.")
+                records = (client.get_record(identifier=identifier, metadata_prefix=metadata_prefix) for identifier in
+                           ids)
+            elif sets[0] is not None:
+                logger.info("Harvesting with sets.")
+                records = (record for set_name in sets for record in client.list_records(
+                    from_=from_,
+                    until=until,
+                    metadata_prefix=metadata_prefix,
+                    set_=set_name
+                ))
+            else:
                 if from_:
                     logger.info("Incremental harvest since %s", from_date)
                     records = client.list_records(
                         from_=from_,
                         until=until,
                         metadata_prefix=metadata_prefix,
-                        set_=set_name
                     )
                 else:
                     logger.info("First harvest, fetching all records.")
                     records = client.list_records(
-                        #until=until, # some PaNOSC repositories won't work with "until" parameter so we do not need to pass this parameter at all
                         metadata_prefix=metadata_prefix,
-                        set_=set_name,
                         ignore_deleted=True
                     )
 
-                for record in records:
-                    record_count += 1
+            for record in records:
+                record_count += 1
 
-                    # after every 10 records add 1 second sleep
-                    if need_timeout:
-                        if record_count % 10 == 0:
-                            time.sleep(2)
+                # after every 10 records add 1 second sleep
+                if need_timeout:
+                    if record_count % 10 == 0:
+                        time.sleep(2)
 
-                    try:
-                        identifier = record.header.identifier
-                        datestamp = record.header.datestamp
-                        is_deleted = getattr(record.header, "status", None) == "deleted"
-                        raw_metadata = ET.tostring(record.xml, pretty_print=True, encoding="unicode")
-                        
-                        # special case where we skip some records for PaNOSC ALBA repository because those records have poor metadata
-                        if repository_name == "ALBA":
-                            setSpecs = record.header.setSpecs
-                            if setSpecs == []:
-                                continue
+                try:
+                    identifier = record.header.identifier
+                    datestamp = record.header.datestamp
+                    is_deleted = getattr(record.header, "status", None) == "deleted"
+                    raw_metadata = ET.tostring(record.xml, pretty_print=True, encoding="unicode")
 
-                        harvest_params = config.get("harvest_params")
-                        additional = harvest_params.get("additional_metadata_params")
-                        additional_protocol = additional.get("protocol") if additional else None
-                        additional_endpoint = additional["endpoint"] if additional else None
-                        additional_format = additional["format"] if additional else None
+                    # special case where we skip some records for PaNOSC ALBA repository because those records have poor metadata
+                    if repository_name == "ALBA":
+                        setSpecs = record.header.setSpecs
+                        if setSpecs == []:
+                            continue
 
-                        # Identifier for additional metadata without namespace (everything after last ":")
-                        identifier_for_additional_metadata = identifier.split(":")[-1]
-                        additional_metadata = None
+                    harvest_params = config.get("harvest_params")
+                    additional = harvest_params.get("additional_metadata_params")
+                    additional_protocol = additional.get("protocol") if additional else None
+                    additional_endpoint = additional["endpoint"] if additional else None
+                    additional_format = additional["format"] if additional else None
 
-                        if not is_deleted:
-                            raw_metadata, additional_metadata = transformation_and_additional_metadata(raw_metadata, 
-                                                                                                       metadata_prefix, 
-                                                                                                       identifier,
-                                                                                                       additional_protocol,
-                                                                                                       additional_endpoint,
-                                                                                                       additional_format)
-                            if raw_metadata is None:
-                                failed_events += 1
-                                continue
+                    # Identifier for additional metadata without namespace (everything after last ":")
+                    identifier_for_additional_metadata = identifier.split(":")[-1]
+                    additional_metadata = None
 
-                        # metadata and record info to be sent to the warehouse
-                        event_payload = {
-                            "record_identifier": identifier_for_additional_metadata,
-                            "datestamp": datestamp,
-                            "raw_metadata": raw_metadata,
-                            "additional_metadata": additional_metadata,
-                            "harvest_url": harvest_url,
-                            "repo_code": code,
-                            "harvest_run_id": harvest_run_id,
-                            "is_deleted": is_deleted
-                        }
-                        
-                        if send_harvest_event(event_payload):
-                            harvest_events += 1
-                        else:
+                    if not is_deleted:
+                        raw_metadata, additional_metadata = transformation_and_additional_metadata(raw_metadata,
+                                                                                                   metadata_prefix,
+                                                                                                   identifier,
+                                                                                                   additional_protocol,
+                                                                                                   additional_endpoint,
+                                                                                                   additional_format)
+                        if raw_metadata is None:
                             failed_events += 1
+                            continue
 
-                    except Exception as e:
+                    # metadata and record info to be sent to the warehouse
+                    event_payload = {
+                        "record_identifier": identifier_for_additional_metadata,
+                        "datestamp": datestamp,
+                        "raw_metadata": raw_metadata,
+                        "additional_metadata": additional_metadata,
+                        "harvest_url": harvest_url,
+                        "repo_code": code,
+                        "harvest_run_id": harvest_run_id,
+                        "is_deleted": is_deleted
+                    }
+
+                    if send_harvest_event(event_payload):
+                        harvest_events += 1
+                    else:
                         failed_events += 1
-                        logger.error("Record %s failed: %s", record_count, e)
+
+                except Exception as e:
+                    failed_events += 1
+                    logger.error("Record %s failed: %s", record_count, e)
 
 
         logger.info(
