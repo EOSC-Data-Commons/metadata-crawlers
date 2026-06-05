@@ -89,7 +89,7 @@ def fetch_all_projects_data(base_api_url: str, headers) -> list:
     projects = []
     page = 1
 
-    while len(projects) < 100:
+    while len(projects) < total:
         response = requests.get(
             f"{base_api_url}/projects",
             headers = headers,
