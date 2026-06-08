@@ -347,7 +347,9 @@ def mdposit_data_to_datacite(project: dict):
     descriptions = ET.SubElement(resource, "descriptions")
     if meta.get("DESCRIPTION"):
         description_text = meta["DESCRIPTION"].strip()
-    description_text = build_description(project) + " " + description_text
+        description_text = build_description(project) + " " + description_text
+    else:
+        description_text = build_description(project)
     ET.SubElement(descriptions, "description", descriptionType="Abstract").text = description_text
 
     xml_str = ET.tostring(record, encoding="unicode")
