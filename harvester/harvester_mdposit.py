@@ -109,7 +109,7 @@ def fetch_all_projects_data(base_api_url: str, headers: dict[str, str]) -> list:
 
 
 
-def fetch_incremental_projects_data(base_api_url: str, from_date, headers: dict[str, str]) -> list:
+def fetch_incremental_projects_data(base_api_url: str, from_date: str, headers: dict[str, str]) -> list:
     """
     Retrieve projects updated after a specified date.
 
@@ -216,7 +216,7 @@ def build_description(project: dict) -> str:
 
 
 
-def mdposit_data_to_datacite(project: dict):
+def mdposit_data_to_datacite(project: dict) -> tuple[str, str, str]:
     """
     Convert an MDposit project record into a DataCite XML record.
 
@@ -291,12 +291,6 @@ def mdposit_data_to_datacite(project: dict):
     # TITLES
     titles = ET.SubElement(resource, "titles")
     ET.SubElement(titles, "title").text = meta.get("NAME", "")
-
-    # PUBLISHER
-    # ET.SubElement(resource, "publisher").text = "MDposit"
-
-    # PUBLICATION YEAR
-    # ET.SubElement(resource, "publicationYear").text = creation_date[:4]
 
     # RESOURCE TYPE
     ET.SubElement(resource, "resourceType", resourceTypeGeneral="Dataset").text = "Molecular Dynamics Simulations"
