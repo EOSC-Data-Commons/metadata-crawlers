@@ -2,6 +2,7 @@ import logging, os, requests, xml.etree.ElementTree as ET, time, mimetypes, json
 from datetime import datetime
 from .db_api_functions import send_harvest_event
 from xml.dom import minidom
+from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -42,7 +43,7 @@ def guess_format(filename: str) -> str:
 
 
 
-def fetch_projects_summary(base_api_url, headers) -> dict:
+def fetch_projects_summary(base_api_url: str, headers: dict[str, str]) -> dict[str, Any]:
     """
     Retrieve project summary statistics from the MDposit API.
 
@@ -60,11 +61,12 @@ def fetch_projects_summary(base_api_url, headers) -> dict:
     url = f"{base_api_url}/projects/summary"
     response = requests.get(url, headers = headers, timeout = 30)
     response.raise_for_status()
-    return response.json()
+    summary = response.json() 
+    return cast(dict[str, Any], summary)
 
 
 
-def fetch_all_projects_data(base_api_url: str, headers) -> list:
+def fetch_all_projects_data(base_api_url: str, headers: dict[str, str]) -> list:
     """
     Retrieve all projects from the MDposit API.
 
@@ -86,7 +88,7 @@ def fetch_all_projects_data(base_api_url: str, headers) -> list:
     total = project_summary["projectsCount"]
     print(f"Total projects: {total}")
 
-    projects = []
+    projects : list[dict] = []
     page = 1
 
     while len(projects) < total:
@@ -107,7 +109,7 @@ def fetch_all_projects_data(base_api_url: str, headers) -> list:
 
 
 
-def fetch_incremental_projects_data(base_api_url: str, from_date, headers) -> list:
+def fetch_incremental_projects_data(base_api_url: str, from_date, headers: dict[str, str]) -> list:
     """
     Retrieve projects updated after a specified date.
 
@@ -131,12 +133,13 @@ def fetch_incremental_projects_data(base_api_url: str, from_date, headers) -> li
     """
     
     query = {"updateDate": {"$gt": from_date}}
+    params : dict[str, str | int] = {"limit": 0, "page": 1, "query": json.dumps(query)}
     
     # inital request just to see how many filtered projects there are
     response = requests.get(
         f"{base_api_url}/projects",
         headers = headers,
-        params = {"limit": 0, "page": 1, "query": json.dumps(query)},
+        params = params,
         timeout = 30
     )
 
@@ -145,13 +148,14 @@ def fetch_incremental_projects_data(base_api_url: str, from_date, headers) -> li
     number_of_filtered_objects = data["filteredCount"]
 
     # fetching all filtered projects 
-    projects = []
+    projects : list[dict] = []
     page = 1
+    params_filtered : dict[str, str | int] = {"limit": 100, "page": page, "query": json.dumps(query)}
     while len(projects) < number_of_filtered_objects:
         response = requests.get(
             f"{base_api_url}/projects",
             headers = headers,
-            params = {"limit": 100, "page": page, "query": json.dumps(query)},
+            params = params_filtered,
             timeout = 30
         )
         response.raise_for_status()
@@ -380,12 +384,14 @@ def run_harvester_mdposit(run_info: dict) -> bool:
         and result in a False return value.
     """
 
+    record_count = 0
+    harvest_events = 0
+    failed_events = 0
     try:
-        record_count = 0
-        harvest_events = 0
-        failed_events = 0
 
         config = run_info.get("endpoint_config")
+        if config is None:
+            raise ValueError("config is missing")
         harvest_url = config.get("harvest_url")
         from_date = run_info.get("from_date")
         headers = {"Accept": "application/json"}
