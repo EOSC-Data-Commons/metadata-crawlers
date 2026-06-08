@@ -168,7 +168,7 @@ def fetch_incremental_projects_data(base_api_url: str, from_date, headers: dict[
 
 
 
-def build_description(project) -> str:
+def build_description(project: dict) -> str:
     """
     Generate a human-readable dataset description from project metadata.
 
