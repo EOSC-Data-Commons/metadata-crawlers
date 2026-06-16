@@ -1,4 +1,4 @@
-import logging, os, requests, xml.etree.ElementTree as ET, time, mimetypes, json
+import logging, os, httpx, xml.etree.ElementTree as ET, time, mimetypes, json
 from datetime import datetime
 from .db_api_functions import send_harvest_event
 from xml.dom import minidom
@@ -7,7 +7,9 @@ from typing import Any, cast
 logger = logging.getLogger(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-
+_MDPOSIT_CLIENT = httpx.Client(
+    timeout=httpx.Timeout(120),
+)
 
 def guess_format(filename: str) -> str:
     """
@@ -59,7 +61,7 @@ def fetch_projects_summary(base_api_url: str, headers: dict[str, str]) -> dict[s
         the API.
     """
     url = f"{base_api_url}/projects/summary"
-    response = requests.get(url, headers = headers, timeout = 30)
+    response = _MDPOSIT_CLIENT.get(url, headers = headers, timeout = 30)
     response.raise_for_status()
     summary = response.json() 
     return cast(dict[str, Any], summary)
@@ -92,7 +94,7 @@ def fetch_all_projects_data(base_api_url: str, headers: dict[str, str]) -> list:
     page = 1
 
     while len(projects) < total:
-        response = requests.get(
+        response = _MDPOSIT_CLIENT.get(
             f"{base_api_url}/projects",
             headers = headers,
             params = {"limit": 100, "page": page},
@@ -136,7 +138,7 @@ def fetch_incremental_projects_data(base_api_url: str, from_date: str, headers: 
     params : dict[str, str | int] = {"limit": 0, "page": 1, "query": json.dumps(query)}
     
     # inital request just to see how many filtered projects there are
-    response = requests.get(
+    response = _MDPOSIT_CLIENT.get(
         f"{base_api_url}/projects",
         headers = headers,
         params = params,
@@ -152,7 +154,7 @@ def fetch_incremental_projects_data(base_api_url: str, from_date: str, headers: 
     page = 1
     params_filtered : dict[str, str | int] = {"limit": 100, "page": page, "query": json.dumps(query)}
     while len(projects) < number_of_filtered_objects:
-        response = requests.get(
+        response = _MDPOSIT_CLIENT.get(
             f"{base_api_url}/projects",
             headers = headers,
             params = params_filtered,
