@@ -1,4 +1,4 @@
-import json, logging, os, httpx, time, requests
+import json, logging, os, httpx, time
 
 from urllib.parse import urlparse
 from datetime import datetime
@@ -224,13 +224,13 @@ def resolve_zenodo_identifier(doi: str) -> str | None:
     doi_url = f"https://doi.org/{doi}"
 
     try:
-        response = requests.get(doi_url, allow_redirects = True)
+        response = httpx.get(doi_url, follow_redirects = True, timeout = 5)
         response.raise_for_status()
-    except requests.RequestException as e:
+    except httpx.HTTPError as e:
         logger.error("Failed to resolve DOI %s: %s", doi, e)
         return None
 
-    resolved_url = response.url
+    resolved_url = str(response.url)
 
     # Zenodo record URLs look like https://zenodo.org/records/1170128 or /record/1170128
     path = urlparse(resolved_url).path.rstrip("/")  # e.g. "/records/1170128"
@@ -314,7 +314,7 @@ def fetch_records_by_id(client, individual_ids, metadata_prefix):
             except Exception as e:
                 logger.error("Record %s failed: %s", resolved_id, e)
                 yield None
-        time.sleep(2.1)
+        time.sleep(2.1) # zenodo rate limit is 30 requests per minute
 
 
 
