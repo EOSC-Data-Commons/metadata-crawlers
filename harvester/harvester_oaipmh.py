@@ -23,7 +23,7 @@ def close_dataverse_client():
         logger.warning("Failed to close Dataverse client")
         pass
 
-def fetch_dataverse_json(doi: str, base_url: str, exporter: str) -> Optional[str]:
+def fetch_dataverse_json(doi: str, base_url: str, exporter: str | None) -> Optional[str]:
     """
     Fetch additional metadata: dataverse json
 
@@ -34,7 +34,7 @@ def fetch_dataverse_json(doi: str, base_url: str, exporter: str) -> Optional[str
     """
     params = {"exporter": exporter, "persistentId": doi}
     try:
-        response = _DATAVERSE_CLIENT.get(base_url, params=params)
+        response = _DATAVERSE_CLIENT.get(base_url, params = params)
         response.raise_for_status()
         return json.dumps(response.json(), indent=2)
     except httpx.HTTPStatusError as e:
@@ -76,7 +76,7 @@ def fetch_additional_metadata_hal(record_id: str, base_url: str) -> Optional[str
     }
 
     try:
-        response = _DATAVERSE_CLIENT.get(base_url, params=params)
+        response = _DATAVERSE_CLIENT.get(base_url, params = params)
         response.raise_for_status()
         data = response.json()
         if not data.get("response", {}).get("docs"):
@@ -112,8 +112,8 @@ def fetch_additional_oai(record_id: str, base_url: str, metadata_prefix: str) ->
     """
     try:
         with Scythe(base_url) as client:
-            record = client.get_record(identifier=record_id, metadata_prefix=metadata_prefix)
-            return ET.tostring(record.xml, pretty_print=True, encoding="unicode")
+            record = client.get_record(identifier = record_id, metadata_prefix = metadata_prefix)
+            return ET.tostring(record.xml, pretty_print = True, encoding = "unicode")
     except Exception as e:
         logger.warning("Error fetching %s metadata for %s: %s", metadata_prefix, record_id, e)
         return None
@@ -135,12 +135,12 @@ def apply_xslt_transform(xml: str, transform: ET.XSLT) -> str | None:
         logger.warning("Transformation failed: %s", e)
         return None
     
-def transformation_and_additional_metadata(raw_metadata: str, 
+def transformation_and_additional_metadata(raw_metadata: str | None, 
                                            metadata_prefix: str, 
                                            identifier: str, 
                                            additional_protocol: str | None, 
-                                           additional_endpoint: str | None, 
-                                           additional_format: str | None) -> tuple[str, str]:
+                                           additional_endpoint: str, 
+                                           additional_format: str) -> tuple[str | None, str | None]:
     """
     Transform metadata into DataCite format and optionally fetch additional metadata.
 
@@ -153,8 +153,8 @@ def transformation_and_additional_metadata(raw_metadata: str,
     :param metadata_prefix (str): The metadata format identifier (e.g., "oai_dc", "oai_ddi25", "datacite").
     :param identifier (str): Unique identifier of the record (e.g., DOI or OAI identifier).
     :param additional_protocol (str | None): Name of protocol that is used for additional metadata (OAI-PMH, DATAVERSE_API, HAL_API...)
-    :param additional_endpoint (str | None): Base endpoint URL for additional metadata
-    :param additional_format (str | None): Additional parameter that is needed for some endpoints
+    :param additional_endpoint (str): Base endpoint URL for additional metadata
+    :param additional_format (str): Additional parameter that is needed for some endpoints
 
     :return: tuple of (raw_metadata, additional_metadata), where raw_metadata is the
             transformed (or original) metadata, and additional_metadata is
@@ -177,32 +177,38 @@ def transformation_and_additional_metadata(raw_metadata: str,
                 XSLT_PATH = os.path.join(BASE_DIR, "dc_to_datacite.xsl")
                 xslt_doc = ET.parse(XSLT_PATH)
                 transform = ET.XSLT(xslt_doc)
-                
-            additional_metadata = raw_metadata
-            raw_metadata = apply_xslt_transform(raw_metadata, transform)
-            if raw_metadata is None:
-                logger.warning("Skipping record %s: transformation to DataCite failed.", identifier)
-                return None, None
+
+            if transform is not None:
+                if raw_metadata is None:
+                    logger.warning("Skipping record %s: no metadata to transform.", identifier)
+                    return None, None
+                additional_metadata = raw_metadata
+                raw_metadata = apply_xslt_transform(raw_metadata, transform)
+                if raw_metadata is None:
+                    logger.warning("Skipping record %s: transformation to DataCite failed.", identifier)
+                    return None, None
 
         elif additional_protocol == "DATAVERSE_API": # DANS
             additional_metadata = fetch_dataverse_json(
-                doi=identifier,
-                base_url=additional_endpoint,
-                exporter=additional_format
+                doi = identifier,
+                base_url = additional_endpoint,
+                exporter = additional_format
             )
 
         elif additional_protocol == "OAI-PMH": # DABAR
             additional_metadata = fetch_additional_oai(
-                record_id=identifier,
-                base_url=additional_endpoint,
-                metadata_prefix=additional_format
+                record_id = identifier,
+                base_url = additional_endpoint,
+                metadata_prefix = additional_format
             )
 
         elif additional_protocol == "HAL_API": # HAL
             identifier_for_additional_metadata = identifier.split(":")[-1]
+            if identifier_for_additional_metadata is None:
+                raise ValueError("Incorrect identifier for HAL additional metadata")
             additional_metadata = fetch_additional_metadata_hal(
-                record_id=identifier_for_additional_metadata,
-                base_url=additional_endpoint
+                record_id = identifier_for_additional_metadata,
+                base_url = additional_endpoint
             )
 
     except Exception as e:
@@ -391,18 +397,22 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
         from_date = run_info.get("from_date")
         from_ = datetime.strptime(from_date, '%Y-%m-%dT%H:%M:%S.%f%z').strftime('%Y-%m-%dT%H:%M:%SZ') if from_date else None
         until_date = run_info.get("until_date")
+        if until_date is None:
+            raise ValueError("Missing until date")
         until = datetime.strptime(until_date, '%Y-%m-%dT%H:%M:%S.%f%z').strftime('%Y-%m-%dT%H:%M:%SZ')
 
         config = run_info.get("endpoint_config")
-        harvest_url = config.get("harvest_url")
-        harvest_params = config.get("harvest_params")
+        if config is None:
+            raise ValueError("Missing config")
+        harvest_url = config.get("harvest_url", "")
+        harvest_params = config.get("harvest_params", "")
         metadata_prefix = harvest_params.get("metadata_prefix", "oai_dc")
         sets = harvest_params.get("set") if harvest_params.get("set") else [None]
-        code = config.get("code")
+        code = config.get("code", "")
         individual_ids = run_info.get("master_set_identifiers")
 
         # here we define for which repositories we need to add timeout in order get back all the records from them
-        repository_name = config.get("name")
+        repository_name = config.get("name", "")
         need_timeout = False
         if repository_name in ["ALBA", "Riga Stradins University", "CLARIN-IV", "ZENODO"]:
             need_timeout = True
