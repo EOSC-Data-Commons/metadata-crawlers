@@ -376,9 +376,8 @@ def run_harvester_empiar(run_info: dict) -> bool:
         all_projects = {}
         if not from_date:
             projects = list(search_all())
-
-        # else:
-        #     projects = search_incremental(config)
+        else:
+            projects = search_incremental(config)
         
 
         projects = list(search_all())
@@ -386,42 +385,36 @@ def run_harvester_empiar(run_info: dict) -> bool:
         xml_records = []
         for page in projects:
             for empiar_key, record in page.items():
-                entry_id = empiar_key.removeprefix("EMPIAR-")  # "EMPIAR-12646" -> "12646"
+                entry_id = empiar_key.removeprefix("EMPIAR-")
                 xml_out, identifier, datestamp = empiar_data_to_datacite(entry_id, record)
-                print(xml_out)
-                # xml_records.append(xml_out)
 
-        # for empiar_id, metadata in projects.items():
-        #     empiar_xml, identifier, datestamp = empiar_data_to_datacite(metadata)
-        #     print(empiar_xml)
+                event_payload = {
+                    "record_identifier": empiar_key,
+                    "datestamp": datestamp,
+                    "raw_metadata": xml_out,
+                    # "additional_metadata": additional_file_metadata,
+                    "harvest_url": harvest_url,
+                    "repo_code": "MDDB",
+                    "harvest_run_id": run_info.get("id"),
+                    "is_deleted": False
+                }
 
-        #     event_payload = {
-        #         "record_identifier": empiar_id,
-        #         "datestamp": datestamp,
-        #         "raw_metadata": empiar_xml,
-        #         # "additional_metadata": additional_file_metadata,
-        #         "harvest_url": harvest_url,
-        #         "repo_code": "MDDB",
-        #         "harvest_run_id": run_info.get("id"),
-        #         "is_deleted": False
-        #     }
+                if send_harvest_event(event_payload):
+                    harvest_events += 1
+                else:
+                    failed_events += 1
 
-        #     if send_harvest_event(event_payload):
-        #         harvest_events += 1
-        #     else:
-        #         failed_events += 1
+            logger.info(
+                "Harvest summary: processed %s records, successfully sent %s of them to the warehouse, failed to send %s records.",
+                record_count,
+                harvest_events,
+                failed_events
+            )
 
-        # logger.info(
-        #     "Harvest summary: processed %s records, successfully sent %s of them to the warehouse, failed to send %s records.",
-        #     record_count,
-        #     harvest_events,
-        #     failed_events
-        # )
-
-        # if failed_events == 0:
-        #     return True
-        # else:
-        #     return False
+            if failed_events == 0:
+                return True
+            else:
+                return False
             
     except Exception as e:
         logger.exception("Unexpected error in run_harvester_oaipmh: %s", e)
