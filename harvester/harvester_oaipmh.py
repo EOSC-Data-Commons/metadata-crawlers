@@ -232,7 +232,7 @@ def resolve_zenodo_identifier(doi: str) -> str | None:
     doi_url = f"https://doi.org/{doi}"
 
     try:
-        response = httpx.get(doi_url, follow_redirects = True, timeout = 5)
+        response = httpx.get(doi_url, follow_redirects = True, timeout = 30)
         response.raise_for_status()
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404:
