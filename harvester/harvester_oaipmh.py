@@ -221,30 +221,34 @@ def transformation_and_additional_metadata(raw_metadata: str | None,
 
 def resolve_zenodo_identifier(doi: str) -> str | None:
     """
-    Resolve a Zenodo DOI (e.g. "10.5281/zenodo.1170128") by following the
-    DOI redirect to the actual Zenodo record page and extracting the record ID.
+    Resolve a Zenodo DOI by following the DOI redirect to the 
+    actual Zenodo record page and extracting the record ID.
 
     :param doi: DOI string, e.g. "10.5281/zenodo.1170128"
-    :return: the resolved Zenodo record ID as a string, or None if it couldn't be resolved
+    :return: the resolved Zenodo record ID as a string, "skip" if the DOI
+             returned HTTP 404, or None if it couldn't be resolved for
+             another reason.
     """
     doi_url = f"https://doi.org/{doi}"
 
     try:
         response = httpx.get(doi_url, follow_redirects = True, timeout = 5)
         response.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            logger.error("DOI %s returned %s, skipping.", doi, e.response.status_code)
+            return "skip"
+        logger.error("Failed to resolve DOI %s: %s", doi, e)
+        return None
     except httpx.HTTPError as e:
         logger.error("Failed to resolve DOI %s: %s", doi, e)
         return None
 
     resolved_url = str(response.url)
 
-    # Zenodo record URLs look like https://zenodo.org/records/1170128 or /record/1170128
+    # Zenodo record URLs look like https://zenodo.org/records/1170128
     path = urlparse(resolved_url).path.rstrip("/")  # e.g. "/records/1170128"
     record_id = path.rsplit("/", 1)[-1]              # "1170128"
-
-    if not record_id.isdigit():
-        logger.warning("Could not extract Zenodo record id from resolved URL %s (DOI: %s)", resolved_url, doi)
-        return None
 
     return f"oai:zenodo.org:{record_id}"
 
@@ -252,8 +256,20 @@ def resolve_zenodo_identifier(doi: str) -> str | None:
 
 def process_record(record, config, metadata_prefix, harvest_url, code, harvest_run_id, repository_name):
     """
-    Process a single OAI-PMH record and send it to the warehouse.
-    :return str: "sent", "failed", or "skipped"
+    Process a single OAI-PMH record: extract and transform its metadata, 
+    then send the resulting event to the warehouse.
+
+    :param record: OAI-PMH record object (as returned by Scythe)
+    :param config: harvest endpoint configuration dict
+    :param metadata_prefix: OAI-PMH metadata prefix the record was harvested with
+                             (e.g. "oai_dc", "datacite")
+    :param harvest_url: base URL of the OAI-PMH endpoint the record came from
+    :param code: repository code
+    :param harvest_run_id: identifier of the current harvest run
+    :param repository_name: repository name
+    :return str: "skipped" if the record was excluded via the ALBA empty-setSpecs rule
+                 "failed" if metadata transformation failed or the event could not be sent to the warehouse
+                 "sent" if the event was successfully sent
     """
     identifier = record.header.identifier
     datestamp = record.header.datestamp
@@ -304,29 +320,63 @@ def process_record(record, config, metadata_prefix, harvest_url, code, harvest_r
 
 
 
-def fetch_records_by_id(client, individual_ids, metadata_prefix):
+def fetch_records_by_id(client, resolved_ids, metadata_prefix):
     """
-    Yields resolved records for a list of individual identifiers.
-    Yields None for any id that fails to resolve or fetch.
+    Fetch records for a list of already-resolved, deduplicated Zenodo identifiers.
+
+    :param client: an active Scythe OAI-PMH client used to fetch individual records
+    :param resolved_ids: iterable of resolved Zenodo record identifiers to fetch
+    :param metadata_prefix: OAI-PMH metadata prefix to request (e.g. "oai_dc", "datacite")
+    :return: list of successfully fetched record objects
     """
-    for raw_id in individual_ids:
-        resolved_id = resolve_zenodo_identifier(raw_id)
-        if resolved_id is None:
-            logger.error("Could not resolve identifier %s, skipping.", raw_id)
-            yield None
-        else:
-            try:
-                yield client.get_record(identifier=resolved_id, metadata_prefix=metadata_prefix)
-            except Exception as e:
-                logger.error("Record %s failed: %s", resolved_id, e)
-                yield None
+    records = []
+    for resolved_id in resolved_ids:
+        try:
+            records.append(client.get_record(identifier = resolved_id, metadata_prefix = metadata_prefix))
+        except Exception as e:
+            logger.error("Record %s failed: %s", resolved_id, e)
+        time.sleep(2.1)  # zenodo rate limit is 30 requests per minute
+    return records
+
+
+
+def resolve_individual_ids(individual_ids: list[str]) -> dict[str, str]:
+    """
+    Resolve a list of Zenodo DOIs to their record identifiers.
+
+    :param individual_ids: list of DOI strings to resolve
+    :return: set of resolved Zenodo identifiers (e.g. "oai:zenodo.org:1170128"),
+             deduplicated. DOIs that returned "skip" (404) or that failed
+             to resolve for another reason are omitted
+    """
+    resolved: set[str] = set()
+
+    for doi in individual_ids:
+        result = resolve_zenodo_identifier(doi)
+
+        if result is None or result == "skip":
+            continue
+
+        resolved.add(result)
         time.sleep(2.1) # zenodo rate limit is 30 requests per minute
+
+    logger.info("Resolved %d/%d DOIs.", len(resolved), len(individual_ids))
+    return resolved
 
 
 
 def fetch_records_by_sets(client, sets, from_, from_date, until, metadata_prefix):
     """
-    Yields records across all configured sets, incremental or full.
+    Yield OAI-PMH records across all configured sets, either incrementally
+    (from_ to until) or as a full harvest (all records, deleted ones ignored).
+
+    :param client: an active Scythe OAI-PMH client used to list records
+    :param sets: iterable of OAI-PMH set names to harvest
+    :param from_: lower bound datestamp
+    :param from_date: original, unformatted "from" date used only for logging
+    :param until: upper bound datestamp
+    :param metadata_prefix: OAI-PMH metadata prefix to request (e.g. "oai_dc", "datacite")
+    :return: generator yielding record objects across all given sets, in order
     """
     for set_name in sets:
         if from_:
@@ -350,7 +400,22 @@ def fetch_records_by_sets(client, sets, from_, from_date, until, metadata_prefix
 
 def run_harvest_loop(record_iter, need_timeout, config, metadata_prefix, harvest_url, code, harvest_run_id, repository_name):
     """
-    Consumes an iterator of records, processing and counting each one. Returns (record_count, harvest_events, failed_events).
+    Consume an iterator of records, processing and counting each one.
+
+    :param record_iter: iterable of record objects to process
+    :param need_timeout: if True, sleep 2 seconds after every 10th record
+                          to throttle requests to rate-limited repositories
+    :param config: harvest endpoint configuration dict
+    :param metadata_prefix: OAI-PMH metadata prefix used for this harvest
+    :param harvest_url: base URL of the OAI-PMH endpoint
+    :param code: repository code
+    :param harvest_run_id: identifier of the current harvest run
+    :param repository_name: human-readable repository name
+    :return: tuple of (record_count, harvest_events, failed_events) where
+             record_count is the total number of items consumed from
+             record_iter, harvest_events is the number successfully sent
+             to the warehouse, and failed_events is the number that were
+             None, raised an exception, or returned "failed"
     """
     record_count = 0
     harvest_events = 0
@@ -421,8 +486,9 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
         with Scythe(harvest_url, timeout = 180, max_retries = 3, default_retry_after = 60) as client:
 
             if individual_ids:
-                logger.info("Fetching %d individual records by ID.", len(individual_ids))
-                record_iter = fetch_records_by_id(client, individual_ids, metadata_prefix)
+                logger.info("Resolving %d individual identifiers before fetching.", len(individual_ids))
+                resolved_ids = resolve_individual_ids(individual_ids)
+                record_iter = fetch_records_by_id(client, resolved_ids, metadata_prefix)
             else:
                 record_iter = fetch_records_by_sets(client, sets, from_, from_date, until, metadata_prefix)
 
@@ -431,7 +497,7 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
             )
 
         logger.info(
-            "Harvest summary: processed %s records, successfully sent %s of them to the warehouse, failed to send %s records.",
+            "Harvest summary: processed %s records, successfully sent %s of them to the warehouse, failed to send %s records",
             record_count,
             harvest_events,
             failed_events
@@ -442,7 +508,7 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
     except Exception:
         logger.exception("Unexpected error in run_harvester_oaipmh")
         logger.info(
-            "Harvest summary: processed %s records, successfully sent %s of them to the warehouse, failed to send %s records.",
+            "Harvest summary: processed %s records, successfully sent %s of them to the warehouse, failed to send %s records",
             record_count,
             harvest_events,
             failed_events
