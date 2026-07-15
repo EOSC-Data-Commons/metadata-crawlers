@@ -13,7 +13,8 @@ logger = logging.getLogger(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # shared http client for Dataverse requests
-_DATAVERSE_CLIENT = httpx.Client(timeout=30)
+_DATAVERSE_CLIENT = httpx.Client(timeout = 30)
+
 
 
 def close_dataverse_client():
@@ -22,6 +23,8 @@ def close_dataverse_client():
     except Exception:
         logger.warning("Failed to close Dataverse client")
         pass
+
+
 
 def fetch_dataverse_json(doi: str, base_url: str, exporter: str | None) -> Optional[str]:
     """
@@ -48,6 +51,8 @@ def fetch_dataverse_json(doi: str, base_url: str, exporter: str | None) -> Optio
         logger.error("Network error fetching Dataverse JSON for %s: %s", doi, e)
         return None
 
+
+
 def fetch_additional_metadata_hal(record_id: str, base_url: str) -> Optional[str]:
     """
     Fetch file metadata from the HAL Search API for a given HAL record.
@@ -57,7 +62,6 @@ def fetch_additional_metadata_hal(record_id: str, base_url: str) -> Optional[str
     :return: stringified JSON response with additional metadata;
             returns None if the request fails or the record is not found
     """
-
     # Remove version suffix from the ID because query doesn't accept version suffix
     hal_id_without_version = record_id.split("v")[0]
     params = {
@@ -101,6 +105,7 @@ def fetch_additional_metadata_hal(record_id: str, base_url: str) -> Optional[str
         return None
 
 
+
 def fetch_additional_oai(record_id: str, base_url: str, metadata_prefix: str) -> Optional[str]:
     """
     Fetch additional metadata: OAI-PMH
@@ -119,6 +124,7 @@ def fetch_additional_oai(record_id: str, base_url: str, metadata_prefix: str) ->
         return None
 
 
+
 def apply_xslt_transform(xml: str, transform: ET.XSLT) -> str | None:
     """
     Apply a precompiled XSLT transform to a XML string.
@@ -135,6 +141,8 @@ def apply_xslt_transform(xml: str, transform: ET.XSLT) -> str | None:
         logger.warning("Transformation failed: %s", e)
         return None
     
+
+
 def transformation_and_additional_metadata(raw_metadata: str | None, 
                                            metadata_prefix: str, 
                                            identifier: str, 
@@ -161,7 +169,6 @@ def transformation_and_additional_metadata(raw_metadata: str | None,
             either the original metadata, externally fetched metadata, or None.
             Returns (None, None) on failure.
     """
-
     # if schema is not DataCite, we will need to transform the XML
     additional_metadata = None
 
@@ -219,7 +226,7 @@ def transformation_and_additional_metadata(raw_metadata: str | None,
 
 
 
-def resolve_zenodo_identifier(doi: str) -> str | None:
+def resolve_zenodo_identifier(zenodo_doi: str) -> str | None:
     """
     Resolve a Zenodo DOI by following the DOI redirect to the 
     actual Zenodo record page and extracting the record ID.
@@ -229,34 +236,58 @@ def resolve_zenodo_identifier(doi: str) -> str | None:
              returned HTTP 404, or None if it couldn't be resolved for
              another reason.
     """
-    doi_url = f"https://doi.org/{doi}"
+    zenodo_doi_url = f"https://doi.org/{zenodo_doi}"
 
     try:
-        response = httpx.get(doi_url, follow_redirects = True, timeout = 30)
+        response = httpx.get(zenodo_doi_url, follow_redirects = True, timeout = 30)
         response.raise_for_status()
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404:
-            logger.error("DOI %s returned %s, skipping.", doi, e.response.status_code)
+            logger.error("DOI %s returned %s, skipping.", zenodo_doi, e.response.status_code)
             return "skip"
-        logger.error("Failed to resolve DOI %s: %s", doi, e)
+        logger.error("Failed to resolve DOI %s: %s", zenodo_doi, e)
         return None
     except httpx.HTTPError as e:
-        logger.error("Failed to resolve DOI %s: %s", doi, e)
+        logger.error("Failed to resolve DOI %s: %s", zenodo_doi, e)
         return None
 
-    resolved_url = str(response.url)
-
-    # Zenodo record URLs look like https://zenodo.org/records/1170128
-    path = urlparse(resolved_url).path.rstrip("/")  # e.g. "/records/1170128"
-    record_id = path.rsplit("/", 1)[-1]              # "1170128"
+    resolved_url = str(response.url) # e.g. https://zenodo.org/records/1170128
+    path = urlparse(resolved_url).path.rstrip("/") # e.g. "/records/1170128"
+    record_id = path.rsplit("/", 1)[-1] # "1170128"
 
     return f"oai:zenodo.org:{record_id}"
 
 
 
-def process_record(record, config, metadata_prefix, harvest_url, code, harvest_run_id, repository_name):
+def resolve_zenodo_dois(list_of_zenodo_dois: list[str]) -> set[str]:
     """
-    Process a single OAI-PMH record: extract and transform its metadata, 
+    Resolve a list of Zenodo DOIs to their record identifiers.
+
+    :param list_of_zenodo_dois: list of Zenodo DOI strings to resolve
+    :return: set of resolved Zenodo identifiers (e.g. "oai:zenodo.org:1170128"),
+             deduplicated. DOIs that returned "skip" (404) or that failed
+             to resolve for another reason are omitted
+    """
+    resolved_dois: set[str] = set()
+
+    logger.info("Resolving %d of Zenodo DOIs before fetching records.", len(list_of_zenodo_dois))
+    for doi in list_of_zenodo_dois:
+        resolved_doi = resolve_zenodo_identifier(doi)
+
+        if resolved_doi is None or resolved_doi == "skip":
+            continue
+
+        resolved_dois.add(resolved_doi)
+        time.sleep(2.1) # zenodo rate limit is 60 requests per minute so 2.1 * 30 = 63 > 60
+
+    logger.info("Resolved %d/%d DOIs.", len(resolved_dois), len(list_of_zenodo_dois))
+    return resolved_dois
+
+
+
+def process_record(record, config: dict, metadata_prefix: str, harvest_url: str, code: str, harvest_run_id: str, repository_name: str) -> str:
+    """
+    Process a single OAI-PMH record: extract and transform its metadata,
     then send the resulting event to the warehouse.
 
     :param record: OAI-PMH record object (as returned by Scythe)
@@ -267,123 +298,106 @@ def process_record(record, config, metadata_prefix, harvest_url, code, harvest_r
     :param code: repository code
     :param harvest_run_id: identifier of the current harvest run
     :param repository_name: repository name
-    :return str: "skipped" if the record was excluded via the ALBA empty-setSpecs rule
+    :return str: "skipped" if the record was excluded (e.g. ALBA empty sets)
                  "failed" if metadata transformation failed or the event could not be sent to the warehouse
                  "sent" if the event was successfully sent
     """
-    identifier = record.header.identifier
-    datestamp = record.header.datestamp
-    is_deleted = getattr(record.header, "status", None) == "deleted"
-    raw_metadata = ET.tostring(record.xml, pretty_print=True, encoding="unicode")
+    try:
+        identifier = record.header.identifier
+        datestamp = record.header.datestamp
+        is_deleted = getattr(record.header, "status", None) == "deleted"
+        raw_metadata = ET.tostring(record.xml, pretty_print=True, encoding = "unicode")
 
-    # special case where we skip some records for PaNOSC ALBA repository because those records have poor metadata
-    if repository_name == "ALBA":
-        setSpecs = record.header.setSpecs
-        if setSpecs == []:
-            return "skipped"
+        # special case where we skip some records for PaNOSC ALBA repository because those records have poor metadata
+        if repository_name == "ALBA":
+            setSpecs = record.header.setSpecs
+            if setSpecs == []:
+                return "skipped"
 
-    harvest_params = config.get("harvest_params")
-    additional = harvest_params.get("additional_metadata_params")
-    additional_protocol = additional.get("protocol") if additional else None
-    additional_endpoint = additional["endpoint"] if additional else None
-    additional_format = additional["format"] if additional else None
+        harvest_params = config.get("harvest_params")
+        if harvest_params:
+            additional = harvest_params.get("additional_metadata_params")
+            if additional:
+                additional_protocol = additional.get("protocol")
+                additional_endpoint = additional["endpoint"]
+                additional_format = additional["format"]
 
-    # Identifier for additional metadata without namespace (everything after last ":")
-    identifier_for_additional_metadata = identifier.split(":")[-1]
-    additional_metadata = None
+        # Identifier for additional metadata without namespace (everything after last ":")
+        identifier_for_additional_metadata = identifier.split(":")[-1]
+        additional_metadata = None
 
-    if not is_deleted:
-        raw_metadata, additional_metadata = transformation_and_additional_metadata(
-            raw_metadata,
-            metadata_prefix,
-            identifier,
-            additional_protocol,
-            additional_endpoint,
-            additional_format
-        )
-        if raw_metadata is None:
-            return "failed"
+        if not is_deleted:
+            raw_metadata, additional_metadata = transformation_and_additional_metadata(
+                raw_metadata,
+                metadata_prefix,
+                identifier,
+                additional_protocol,
+                additional_endpoint,
+                additional_format
+            )
+            if raw_metadata is None:
+                return "failed"
 
-    # metadata and record info to be sent to the warehouse
-    event_payload = {
-        "record_identifier": identifier_for_additional_metadata,
-        "datestamp": datestamp,
-        "raw_metadata": raw_metadata,
-        "additional_metadata": additional_metadata,
-        "harvest_url": harvest_url,
-        "repo_code": code,
-        "harvest_run_id": harvest_run_id,
-        "is_deleted": is_deleted
-    }
+        # metadata and record info to be sent to the warehouse
+        event_payload = {
+            "record_identifier": identifier_for_additional_metadata,
+            "datestamp": datestamp,
+            "raw_metadata": raw_metadata,
+            "additional_metadata": additional_metadata,
+            "harvest_url": harvest_url,
+            "repo_code": code,
+            "harvest_run_id": harvest_run_id,
+            "is_deleted": is_deleted
+        }
 
-    return "sent" if send_harvest_event(event_payload) else "failed"
+        return "sent" if send_harvest_event(event_payload) else "failed"
+    except Exception as e:
+        logger.error("Processing of record failed: %s", e)
+        return "failed"
 
 
 
-def fetch_records_by_id(client, resolved_ids, metadata_prefix):
+def fetch_records_by_id(client, record_ids: set[str], metadata_prefix: str, repository_name: str):
     """
-    Fetch records for a list of already-resolved, deduplicated Zenodo identifiers.
+    Fetch records for a list of IDs
 
     :param client: an active Scythe OAI-PMH client used to fetch individual records
-    :param resolved_ids: iterable of resolved Zenodo record identifiers to fetch
+    :param ids: iterable of record identifiers to fetch
     :param metadata_prefix: OAI-PMH metadata prefix to request (e.g. "oai_dc", "datacite")
+    :param repository_name: repository_name
     :return: list of successfully fetched record objects
     """
     records = []
-    for resolved_id in resolved_ids:
+    logger.info("Fetching records for %d identifiers", len(record_ids))
+    for id in record_ids:
         try:
-            records.append(client.get_record(identifier = resolved_id, metadata_prefix = metadata_prefix))
+            records.append(client.get_record(identifier = id, metadata_prefix = metadata_prefix))
+            if repository_name == "Zenodo":
+                time.sleep(2.1)  # zenodo rate limit is 60 requests per minute so 2.1 * 30 = 63 > 60
         except Exception as e:
-            logger.error("Record %s failed: %s", resolved_id, e)
-        time.sleep(2.1)  # zenodo rate limit is 30 requests per minute
+            logger.error("Record %s failed: %s", id, e)
     return records
 
 
 
-def resolve_individual_ids(individual_ids: list[str]) -> dict[str, str]:
+def fetch_records_by_sets(client, sets, from_: str | None, from_date: str | None, until_: str | None, metadata_prefix: str):
     """
-    Resolve a list of Zenodo DOIs to their record identifiers.
-
-    :param individual_ids: list of DOI strings to resolve
-    :return: set of resolved Zenodo identifiers (e.g. "oai:zenodo.org:1170128"),
-             deduplicated. DOIs that returned "skip" (404) or that failed
-             to resolve for another reason are omitted
-    """
-    resolved: set[str] = set()
-
-    for doi in individual_ids:
-        result = resolve_zenodo_identifier(doi)
-
-        if result is None or result == "skip":
-            continue
-
-        resolved.add(result)
-        time.sleep(2.1) # zenodo rate limit is 30 requests per minute
-
-    logger.info("Resolved %d/%d DOIs.", len(resolved), len(individual_ids))
-    return resolved
-
-
-
-def fetch_records_by_sets(client, sets, from_, from_date, until, metadata_prefix):
-    """
-    Yield OAI-PMH records across all configured sets, either incrementally
-    (from_ to until) or as a full harvest (all records, deleted ones ignored).
+    Yield OAI-PMH records across all configured sets, either incrementally (from_ to until_) or as a full harvest.
 
     :param client: an active Scythe OAI-PMH client used to list records
     :param sets: iterable of OAI-PMH set names to harvest
     :param from_: lower bound datestamp
     :param from_date: original, unformatted "from" date used only for logging
-    :param until: upper bound datestamp
+    :param until_: upper bound datestamp
     :param metadata_prefix: OAI-PMH metadata prefix to request (e.g. "oai_dc", "datacite")
-    :return: generator yielding record objects across all given sets, in order
+    :return: generator yielding record objects across all given sets
     """
     for set_name in sets:
         if from_:
             logger.info("Incremental harvest since %s", from_date)
             records = client.list_records(
                 from_ = from_, 
-                until = until, 
+                until = until_, 
                 metadata_prefix = metadata_prefix, 
                 set_ = set_name
             )
@@ -398,7 +412,9 @@ def fetch_records_by_sets(client, sets, from_, from_date, until, metadata_prefix
 
 
 
-def run_harvest_loop(record_iter, need_timeout, config, metadata_prefix, harvest_url, code, harvest_run_id, repository_name):
+def run_harvest_loop(record_iter, need_timeout: bool, config: dict, metadata_prefix: str, 
+                     harvest_url: str, code: str, harvest_run_id: str, repository_name: str
+                     ) -> tuple[int, int, int]:
     """
     Consume an iterator of records, processing and counting each one.
 
@@ -410,7 +426,7 @@ def run_harvest_loop(record_iter, need_timeout, config, metadata_prefix, harvest
     :param harvest_url: base URL of the OAI-PMH endpoint
     :param code: repository code
     :param harvest_run_id: identifier of the current harvest run
-    :param repository_name: human-readable repository name
+    :param repository_name: repository name
     :return: tuple of (record_count, harvest_events, failed_events) where
              record_count is the total number of items consumed from
              record_iter, harvest_events is the number successfully sent
@@ -422,20 +438,21 @@ def run_harvest_loop(record_iter, need_timeout, config, metadata_prefix, harvest
     failed_events = 0
     for record in record_iter:
         record_count += 1
-        if need_timeout and record_count % 10 == 0:
-            time.sleep(2)
         if record is None:
             failed_events += 1
             continue
-        try:
-            status = process_record(record, config, metadata_prefix, harvest_url, code, harvest_run_id, repository_name)
-        except Exception as e:
-            status = "failed"
-            logger.error("Record %s failed: %s", record_count, e)
+        if need_timeout and record_count % 10 == 0:
+            time.sleep(2)
+
+        status = process_record(record, config, metadata_prefix, harvest_url, code, harvest_run_id, repository_name)
+
         if status == "sent":
             harvest_events += 1
         elif status == "failed":
             failed_events += 1
+        else:
+            continue
+
     return record_count, harvest_events, failed_events
 
 
@@ -444,14 +461,9 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
     """
     Run an OAI-PMH harvest.
 
-    :param run_info (dict): info about the harvest run including: 
-        harvest_run_id, 
-        from and until dates,
-        endpoint_config
-
+    :param run_info (dict): info about the harvest run
     :return bool: True if harvest succeeded, False otherwise
     """
-
     record_count = 0
     harvest_events = 0
     failed_events = 0
@@ -459,38 +471,47 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
     try:
         # extract run info and harvest params
         harvest_run_id = run_info.get("id")
+        if harvest_run_id is None:
+            raise ValueError("Missing harvest run ID")
+
+        # extract dates
         from_date = run_info.get("from_date")
         from_ = datetime.strptime(from_date, '%Y-%m-%dT%H:%M:%S.%f%z').strftime('%Y-%m-%dT%H:%M:%SZ') if from_date else None
         until_date = run_info.get("until_date")
         if until_date is None:
             raise ValueError("Missing until date")
-        until = datetime.strptime(until_date, '%Y-%m-%dT%H:%M:%S.%f%z').strftime('%Y-%m-%dT%H:%M:%SZ')
+        until_ = datetime.strptime(until_date, '%Y-%m-%dT%H:%M:%S.%f%z').strftime('%Y-%m-%dT%H:%M:%SZ')
 
         config = run_info.get("endpoint_config")
         if config is None:
             raise ValueError("Missing config")
+        
+        # extract parameters from config
         harvest_url = config.get("harvest_url", "")
         harvest_params = config.get("harvest_params", "")
+        code = config.get("code", "")
+
+        # extract additional parameters from harvest_params
         metadata_prefix = harvest_params.get("metadata_prefix", "oai_dc")
         sets = harvest_params.get("set") if harvest_params.get("set") else [None]
-        code = config.get("code", "")
+
+        # if master_set_indentifiers is defined then we do harvest by individual IDs
         individual_ids = run_info.get("master_set_identifiers")
 
         # here we define for which repositories we need to add timeout in order get back all the records from them
         repository_name = config.get("name", "")
         need_timeout = False
-        if repository_name in ["ALBA", "Riga Stradins University", "CLARIN-IV", "ZENODO"]:
+        if repository_name in ["ALBA", "Riga Stradins University", "CLARIN-IV", "Zenodo"]:
             need_timeout = True
 
         # harvesting
         with Scythe(harvest_url, timeout = 180, max_retries = 3, default_retry_after = 60) as client:
 
-            if individual_ids:
-                logger.info("Resolving %d individual identifiers before fetching.", len(individual_ids))
-                resolved_ids = resolve_individual_ids(individual_ids)
-                record_iter = fetch_records_by_id(client, resolved_ids, metadata_prefix)
+            if individual_ids: # currently only used for HAL-Zenodo
+                resolved_ids = resolve_zenodo_dois(individual_ids)
+                record_iter = fetch_records_by_id(client, resolved_ids, metadata_prefix, repository_name)
             else:
-                record_iter = fetch_records_by_sets(client, sets, from_, from_date, until, metadata_prefix)
+                record_iter = fetch_records_by_sets(client, sets, from_, from_date, until_, metadata_prefix)
 
             record_count, harvest_events, failed_events = run_harvest_loop(
                 record_iter, need_timeout, config, metadata_prefix, harvest_url, code, harvest_run_id, repository_name
