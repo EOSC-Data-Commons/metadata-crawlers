@@ -314,6 +314,9 @@ def process_record(record, config: dict, metadata_prefix: str, harvest_url: str,
             if setSpecs == []:
                 return "skipped"
 
+        additional_protocol = None
+        additional_endpoint = None
+        additional_format = None
         harvest_params = config.get("harvest_params")
         if harvest_params:
             additional = harvest_params.get("additional_metadata_params")
