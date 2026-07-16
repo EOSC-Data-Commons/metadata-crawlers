@@ -5,6 +5,8 @@ from datetime import datetime
 from lxml import etree as ET
 from oaipmh_scythe import Scythe
 from typing import Optional
+from collections.abc import Iterable, Iterator
+from typing import Any
 
 from .db_api_functions import send_harvest_event
 
@@ -315,8 +317,8 @@ def process_record(record, config: dict, metadata_prefix: str, harvest_url: str,
                 return "skipped"
 
         additional_protocol = None
-        additional_endpoint = None
-        additional_format = None
+        additional_endpoint = ""
+        additional_format = ""
         harvest_params = config.get("harvest_params")
         if harvest_params:
             additional = harvest_params.get("additional_metadata_params")
@@ -360,7 +362,7 @@ def process_record(record, config: dict, metadata_prefix: str, harvest_url: str,
 
 
 
-def fetch_records_by_id(client, record_ids: set[str], metadata_prefix: str, repository_name: str):
+def fetch_records_by_id(client, record_ids: set[str], metadata_prefix: str, repository_name: str) -> Iterator[Any]:
     """
     Fetch records for a list of IDs
 
@@ -370,20 +372,19 @@ def fetch_records_by_id(client, record_ids: set[str], metadata_prefix: str, repo
     :param repository_name: repository_name
     :return: list of successfully fetched record objects
     """
-    records = []
     logger.info("Fetching records for %d identifiers", len(record_ids))
     for id in record_ids:
         try:
-            records.append(client.get_record(identifier = id, metadata_prefix = metadata_prefix))
+            yield client.get_record(identifier = id, metadata_prefix = metadata_prefix)
             if repository_name == "Zenodo":
                 time.sleep(2.1)  # zenodo rate limit is 60 requests per minute so 2.1 * 30 = 63 > 60
         except Exception as e:
             logger.error("Record %s failed: %s", id, e)
-    return records
 
 
 
-def fetch_records_by_sets(client, sets, from_: str | None, from_date: str | None, until_: str | None, metadata_prefix: str):
+def fetch_records_by_sets(client, sets: Iterable[str | None], from_: str | None, 
+                          from_date: str | None, until_: str | None, metadata_prefix: str) -> Iterator[Any]:
     """
     Yield OAI-PMH records across all configured sets, either incrementally (from_ to until_) or as a full harvest.
 
@@ -395,6 +396,8 @@ def fetch_records_by_sets(client, sets, from_: str | None, from_date: str | None
     :param metadata_prefix: OAI-PMH metadata prefix to request (e.g. "oai_dc", "datacite")
     :return: generator yielding record objects across all given sets
     """
+    sets = sets or [None]
+
     for set_name in sets:
         if from_:
             logger.info("Incremental harvest since %s", from_date)
@@ -490,19 +493,30 @@ def run_harvester_oaipmh(run_info: dict) -> bool:
             raise ValueError("Missing config")
         
         # extract parameters from config
-        harvest_url = config.get("harvest_url", "")
-        harvest_params = config.get("harvest_params", "")
-        code = config.get("code", "")
+        harvest_url = config.get("harvest_url")
+        if harvest_url is None:
+            raise ValueError("Missing harvest url")
+
+        harvest_params = config.get("harvest_params")
+        if harvest_params is None:
+            raise ValueError("Missing harvest parameters")
+
+        code = config.get("code")
+        if code is None:
+            raise ValueError("Missing code of repository")
 
         # extract additional parameters from harvest_params
         metadata_prefix = harvest_params.get("metadata_prefix", "oai_dc")
-        sets = harvest_params.get("set") if harvest_params.get("set") else [None]
+        sets = harvest_params.get("set")
 
         # if master_set_indentifiers is defined then we do harvest by individual IDs
         individual_ids = run_info.get("master_set_identifiers")
 
         # here we define for which repositories we need to add timeout in order get back all the records from them
-        repository_name = config.get("name", "")
+        repository_name = config.get("name")
+        if repository_name is None:
+            raise ValueError("Missing name of repository")
+    
         need_timeout = False
         if repository_name in ["ALBA", "Riga Stradins University", "CLARIN-IV", "Zenodo"]:
             need_timeout = True
