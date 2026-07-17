@@ -19,7 +19,17 @@ PAGE_SIZE = 100
 
 
 def search_page(page: int) -> Dict[str, Any]:
-    """One page of `GET /emdb/api/empiar/search/{query}`."""
+    """
+    Fetch one page of results from `GET /emdb/api/empiar/search/{query}`.
+ 
+    Queries the EMPIAR search endpoint with a wildcard query and requests
+    all fields (`fl=*`) for the given page, using the module-level
+    `PAGE_SIZE` as the row count.
+ 
+    :param page: The number of page to fetch.
+ 
+    :return: The parsed JSON payload for that page.
+    """
     url = DEFAULT_BASE_URL + SEARCH_PATH.format(query = "*")
     params: Dict[str, Any] = {"rows": PAGE_SIZE, "page": page, "fl": "*"}
     response = _EMPIAR_CLIENT.get(url, params = params)
@@ -30,8 +40,11 @@ def search_page(page: int) -> Dict[str, Any]:
 
 def search_all() -> Iterator[Dict[str, Any]]:
     """
-    Walk every page of the search endpoint for `query` and yield each
-    page's payload (dict of empiar_id -> metadata) as it's fetched.
+    Walk every page of the EMPIAR search endpoint and yield each page's
+    payload as it's fetched.
+ 
+    :return: An iterator over page payloads, where each payload is a dict
+            mapping EMPIAR IDs to their metadata records.
     """
     page = 1
     total_records = 0
@@ -49,13 +62,8 @@ def search_all() -> Iterator[Dict[str, Any]]:
         )
         yield payload
 
-        if len(payload) < PAGE_SIZE:
-            # Last page was partial, nothing more to fetch.
-            logger.info("Done: %d records across %d pages", total_records, page)
-            break
-
         page += 1
-        time.sleep(0.5)
+        time.sleep(2)
 
 
 
@@ -64,7 +72,7 @@ def empiar_additional_file_metadata(entry_id:  str) -> str:
     Fetch the image-set metadata for a single EMPIAR entry
 
     :params: entry_id: the numeric EMPIAR id (e.g. "10050"), without the "EMPIAR-" prefix
-    :return: the list of image-set dictionaries as returned by the EMPIAR API
+    :return: the list of imagesets dictionaries as returned by the EMPIAR API
     """
     empiar_entry_endpoint = f"https://www.ebi.ac.uk/empiar/api/entry/EMPIAR-{entry_id}/"
     response = _EMPIAR_CLIENT.get(empiar_entry_endpoint)
@@ -74,8 +82,17 @@ def empiar_additional_file_metadata(entry_id:  str) -> str:
 
 
 
-def _add_orcid(parent_el: ET.Element, orcid: str | None) -> None:
-    """Attach a DataCite <nameIdentifier> element for an ORCID iD, if present."""
+def add_orcid(parent_el: ET.Element, orcid: str | None) -> None:
+    """
+    Attach a DataCite <nameIdentifier> element for an ORCID iD, if present.
+ 
+    :param parent_el: The XML element (e.g. a `creator` or `contributor`
+            element) to attach the `nameIdentifier` element to.
+    :param orcid: The ORCID iD, either as a bare identifier or a full URL,
+            or `None` if the person has no ORCID on record.
+ 
+    :return: None. The `parent_el` element is mutated in place.
+    """
     if not orcid:
         return
     orcid = orcid.strip()
@@ -173,7 +190,7 @@ def empiar_data_to_datacite(entry_id: str, record: Dict[str, Any]) -> tuple[str,
         for name, orcid in author_entries:
             creator = ET.SubElement(creators, "creator")
             ET.SubElement(creator, "creatorName", nameType="Personal").text = name
-            _add_orcid(creator, orcid)
+            add_orcid(creator, orcid)
 
     # TITLES (mandatory)
     title = meta.get("title")
@@ -219,7 +236,7 @@ def empiar_data_to_datacite(entry_id: str, record: Dict[str, Any]) -> tuple[str,
         for name, person in contact_people:
             contributor = ET.SubElement(contributors, "contributor", contributorType="ContactPerson")
             ET.SubElement(contributor, "contributorName", nameType="Personal").text = name
-            _add_orcid(contributor, person.get("author_orcid"))
+            add_orcid(contributor, person.get("author_orcid"))
             if person.get("organization"):
                 ET.SubElement(contributor, "affiliation").text = person["organization"]
 
@@ -335,6 +352,14 @@ def empiar_data_to_datacite(entry_id: str, record: Dict[str, Any]) -> tuple[str,
 
 def run_harvester_empiar(run_info: dict) -> bool:
     """
+    Run a full (or incremental) EMPIAR harvest and push
+    each entry to the data warehouse as a harvest event.
+ 
+    :param run_info: Dictionary describing the harvest run.
+ 
+    :return: `True` if every harvest event was sent successfully (and no
+            unexpected exception occurred), `False` if any event failed to
+            send or an exception was raised during the run.
     """
     record_count = 0
     harvest_events = 0
@@ -346,14 +371,12 @@ def run_harvester_empiar(run_info: dict) -> bool:
             raise ValueError("config is missing")
         harvest_url = config.get("harvest_url")
         from_date = run_info.get("from_date")
+        projects = []
         if not from_date:
             projects = list(search_all())
         # else:
         #     projects = search_incremental(config)
         
-
-        projects = list(search_all())
-
         for page in projects:
             for empiar_key, record in page.items():
                 entry_id = empiar_key.removeprefix("EMPIAR-")
@@ -376,17 +399,14 @@ def run_harvester_empiar(run_info: dict) -> bool:
                 else:
                     failed_events += 1
 
-            logger.info(
-                "Harvest summary: processed %s records, successfully sent %s of them to the warehouse, failed to send %s records.",
-                record_count,
-                harvest_events,
-                failed_events
-            )
+        logger.info(
+            "Harvest summary: processed %s records, successfully sent %s of them to the warehouse, failed to send %s records.",
+            record_count,
+            harvest_events,
+            failed_events
+        )
 
-            if failed_events == 0:
-                return True
-            else:
-                return False
+        return failed_events == 0
             
     except Exception as e:
         logger.exception("Unexpected error in run_harvester_oaipmh: %s", e)
