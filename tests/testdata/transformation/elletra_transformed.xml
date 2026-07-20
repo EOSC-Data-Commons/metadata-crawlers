@@ -1,0 +1,38 @@
+<record xmlns="http://www.openarchives.org/OAI/2.0/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:datacite="http://datacite.org/schema/kernel-4">
+  <header>
+    <identifier>9442</identifier>
+    <datestamp>2026-01-12T10:27:03Z</datestamp>
+  </header>
+  <metadata>
+    <resource xmlns="http://datacite.org/schema/kernel-4" xsi:schemaLocation="http://datacite.org/schema/kernel-4 https://schema.datacite.org/meta/kernel-4.6/metadata.xsd">
+      <datacite:identifier identifierType="DOI">10.34965/i9442</datacite:identifier>
+      <datacite:creators>
+        <datacite:creator>
+          <datacite:creatorName nameType="Organizational">Sasa KENIG</datacite:creatorName>
+        </datacite:creator>
+      </datacite:creators>
+      <datacite:titles>
+        <datacite:title>20205303</datacite:title>
+      </datacite:titles>
+      <datacite:publisher>Elettra Sincrotrone Trieste</datacite:publisher>
+      <datacite:publicationYear>2021</datacite:publicationYear>
+      <datacite:resourceType resourceTypeGeneral="Other">Investigation</datacite:resourceType>
+      <datacite:subjects>
+        <datacite:subject>SISSI-Bio</datacite:subject>
+      </datacite:subjects>
+      <datacite:dates>
+        <datacite:date dateType="Created">2021-06-14</datacite:date>
+      </datacite:dates>
+      <datacite:relatedIdentifiers>
+        <datacite:relatedIdentifier relationType="IsPartOf" relatedIdentifierType="DOI">https://doi.org/10.34965/i9442</datacite:relatedIdentifier>
+      </datacite:relatedIdentifiers>
+      <datacite:rightsList>
+        <datacite:rights>Elettra Data Policy</datacite:rights>
+        <datacite:rights rightsURI="https://www.elettra.eu/userarea/scientific-data-policy.html">https://www.elettra.eu/userarea/scientific-data-policy.html</datacite:rights>
+      </datacite:rightsList>
+      <datacite:descriptions>
+        <datacite:description descriptionType="Abstract">investigation id 9442</datacite:description>
+      </datacite:descriptions>
+    </resource>
+  </metadata>
+</record>

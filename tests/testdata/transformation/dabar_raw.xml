@@ -1,0 +1,91 @@
+<record xmlns="http://www.openarchives.org/OAI/2.0/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <header>
+    <identifier>oai:dabar.srce.hr:irb_5</identifier>
+    <datestamp>2019-03-31</datestamp>
+  </header>
+  <metadata>
+    <datacite:resource xmlns:datacite="http://datacite.org/schema/kernel-4" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:dabar="http://dabar.srce.hr/standards/schema/1.0" xsi:schemaLocation="http://datacite.org/schema/kernel-4 http://schema.datacite.org/meta/kernel-4.4/metadata.xsd">
+      <datacite:identifier identifierType="URL">https://urn.nsk.hr/urn:nbn:hr:241:579539</datacite:identifier>
+      <datacite:alternateIdentifiers>
+        <datacite:alternateIdentifier alternateIdentifierType="LOCAL">irb:5</datacite:alternateIdentifier>
+        <datacite:alternateIdentifier alternateIdentifierType="URN">urn:nbn:hr:241:579539</datacite:alternateIdentifier>
+      </datacite:alternateIdentifiers>
+      <datacite:creators>
+        <datacite:creator>
+          <datacite:creatorName nameType="Personal">Kopriva, Ivica</datacite:creatorName>
+          <datacite:familyName>Kopriva</datacite:familyName>
+          <datacite:givenName>Ivica</datacite:givenName>
+          <datacite:affiliation>Institut Ruđer Bošković</datacite:affiliation>
+        </datacite:creator>
+        <datacite:creator>
+          <datacite:creatorName nameType="Personal">Brbić, Marija</datacite:creatorName>
+          <datacite:familyName>Brbić</datacite:familyName>
+          <datacite:givenName>Marija</datacite:givenName>
+        </datacite:creator>
+        <datacite:creator>
+          <datacite:creatorName nameType="Personal">Tolić, Dijana</datacite:creatorName>
+          <datacite:familyName>Tolić</datacite:familyName>
+          <datacite:givenName>Dijana</datacite:givenName>
+          <datacite:affiliation>Institut Ruđer Bošković</datacite:affiliation>
+        </datacite:creator>
+        <datacite:creator>
+          <datacite:creatorName nameType="Personal">Antulov-Fantulin, Nino</datacite:creatorName>
+          <datacite:familyName>Antulov-Fantulin</datacite:familyName>
+          <datacite:givenName>Nino</datacite:givenName>
+        </datacite:creator>
+        <datacite:creator>
+          <datacite:creatorName nameType="Personal">Xinjian, Chen</datacite:creatorName>
+          <datacite:familyName>Xinjian</datacite:familyName>
+          <datacite:givenName>Chen</datacite:givenName>
+          <datacite:affiliation>Institut Ruđer Bošković</datacite:affiliation>
+        </datacite:creator>
+      </datacite:creators>
+      <datacite:titles>
+        <datacite:title xml:lang="eng">Fast clustering in linear independent 1D subspaces: segmentation of multi-channel images with high spatial resolution</datacite:title>
+      </datacite:titles>
+      <datacite:publisher xml:lang="eng">Ruđer Bošković Institute</datacite:publisher>
+      <datacite:publicationYear>2019</datacite:publicationYear>
+      <datacite:resourceType xml:lang="eng" resourceTypeGeneral="Dataset">simulation data</datacite:resourceType>
+      <datacite:subjects>
+        <datacite:subject xml:lang="eng">subspace clustering</datacite:subject>
+        <datacite:subject xml:lang="eng">linear independent 1D subspaces</datacite:subject>
+        <datacite:subject xml:lang="eng">empirical kernel map</datacite:subject>
+        <datacite:subject xml:lang="eng">image segmentation</datacite:subject>
+        <datacite:subject xml:lang="eng">unstained specimen</datacite:subject>
+        <datacite:subject xml:lang="hrv" subjectScheme="nvzz.hr">Prirodne znanosti</datacite:subject>
+        <datacite:subject xml:lang="eng" subjectScheme="nvzz.hr">Natural Sciences</datacite:subject>
+        <datacite:subject xml:lang="hrv" subjectScheme="nvzz.hr">Matematika</datacite:subject>
+        <datacite:subject xml:lang="eng" subjectScheme="nvzz.hr">Mathematics</datacite:subject>
+        <datacite:subject xml:lang="hrv" subjectScheme="nvzz.hr">primijenjena matematika i matematičko modeliranje</datacite:subject>
+        <datacite:subject xml:lang="eng" subjectScheme="nvzz.hr">Applied Mathematics and Mathematical Modelling</datacite:subject>
+      </datacite:subjects>
+      <datacite:dates>
+        <datacite:date dateType="Issued">2019-03-31</datacite:date>
+        <datacite:date dateType="Updated">2021-03-01</datacite:date>
+      </datacite:dates>
+      <language>eng</language>
+      <datacite:relatedIdentifiers>
+        <datacite:relatedIdentifier relatedIdentifierType="URL" relationType="IsCitedBy">http://fulir.irb.hr/2761/</datacite:relatedIdentifier>
+      </datacite:relatedIdentifiers>
+      <datacite:formats>
+        <datacite:format>application/zip</datacite:format>
+        <datacite:format>application/zip</datacite:format>
+        <datacite:format>text/plain</datacite:format>
+      </datacite:formats>
+      <datacite:rightsList>
+        <datacite:rights rightsURI="http://purl.org/coar/access_right/c_abf2">open access</datacite:rights>
+        <datacite:rights schemeURI="https://creativecommons.org/share-your-work/cclicenses/" rightsIdentifierScheme="Creative Commons" rightsIdentifier="CC-BY-SA-4.0" rightsURI="https://creativecommons.org/licenses/by-sa/4.0/">
+                    Creative Commons Attribution-ShareAlike 4.0 International
+                </datacite:rights>
+      </datacite:rightsList>
+      <datacite:descriptions>
+        <datacite:description descriptionType="Abstract" xml:lang="eng">Algorithms for subspace clustering (SC) such as sparse and low- rank representation SC are effective in terms of the accuracy but suffer from high computational complexity. We propose algorithm for SC of (highly) similar data points drawn from union of linear independent one-dimensional subspaces with computational complexity that is linear in number of data points. The algorithm finds a dictionary that represents data in reproducible kernel Hilbert space (RKHS). Afterwards, data are projected into RKHS by using empirical kernel map (EKM). Segmentation into subspaces is realized by applying the max operator on projected data. We provide rigorous proof that for noise free data proposed approach yields exact clustering into subspaces. We also prove that EKM-based projection yields less correlated data points. Due to nonlinear projection, the proposed method can adopt to linearly nonseparable data points. We demonstrate accuracy and computational efficiency of the proposed algorithm on synthetic dataset as well as on segmentation of tissue components from image of unstained specimen in histopathology.</datacite:description>
+      </datacite:descriptions>
+      <datacite:geoLocations>
+        <datacite:geoLocation>
+          <datacite:geoLocationPlace>HR</datacite:geoLocationPlace>
+        </datacite:geoLocation>
+      </datacite:geoLocations>
+    </datacite:resource>
+  </metadata>
+</record>

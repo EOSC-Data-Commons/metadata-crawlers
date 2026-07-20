@@ -1,0 +1,24 @@
+<record xmlns="http://www.openarchives.org/OAI/2.0/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <header>
+    <identifier>9442</identifier>
+    <datestamp>2026-01-12T10:27:03Z</datestamp>
+  </header>
+  <metadata>
+    <oai_dc:dc xmlns:oai_dc="http://www.openarchives.org/OAI/2.0/oai_dc/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.openarchives.org/OAI/2.0/oai_dc/ http://www.openarchives.org/OAI/2.0/oai_dc.xsd">
+      <setSpec>SISSI-Bio</setSpec>
+      <dc:creator>Sasa KENIG</dc:creator>
+      <dc:date>Created: 2021-06-14</dc:date>
+      <dc:description>investigation id 9442</dc:description>
+      <dc:format>Data from large facility measurement</dc:format>
+      <dc:identifier>doi:10.34965/i9442</dc:identifier>
+      <dc:source>https://doi.org/10.34965/i9442</dc:source>
+      <dc:publisher>Elettra Sincrotrone Trieste</dc:publisher>
+      <dc:rights>Elettra Data Policy</dc:rights>
+      <dc:rights>https://www.elettra.eu/userarea/scientific-data-policy.html</dc:rights>
+      <dc:subject>SISSI-Bio</dc:subject>
+      <dc:title>20205303</dc:title>
+      <dc:relationship>Proposal: 20205303</dc:relationship>
+      <dc:type>Investigation</dc:type>
+    </oai_dc:dc>
+  </metadata>
+</record>

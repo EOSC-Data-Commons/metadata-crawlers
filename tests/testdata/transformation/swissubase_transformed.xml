@@ -1,0 +1,109 @@
+<record xmlns="http://www.openarchives.org/OAI/2.0/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:oai="http://www.openarchives.org/OAI/2.0/" xmlns:datacite="http://datacite.org/schema/kernel-4">
+  <header>
+    <identifier>oai:swissubase.ch:0bc01797-aef3-4fda-953b-91edb56852d9</identifier>
+    <datestamp>2026-03-24T12:04:32Z</datestamp>
+  </header>
+  <metadata>
+    <resource xmlns="http://datacite.org/schema/kernel-4" xsi:schemaLocation="http://datacite.org/schema/kernel-4 https://schema.datacite.org/meta/kernel-4.6/metadata.xsd">
+      <datacite:identifier identifierType="DOI">10.23662/FORS-DS-140-1</datacite:identifier>
+      <datacite:creators>
+        <datacite:creator>
+          <datacite:creatorName nameType="Personal">Kriesi, Hanspeter</datacite:creatorName>
+        </datacite:creator>
+      </datacite:creators>
+      <datacite:titles>
+        <datacite:title xml:lang="fr">Nouveaux mouvements sociaux dans les années 1980, données internationales</datacite:title>
+      </datacite:titles>
+      <datacite:publisher>FORS</datacite:publisher>
+      <datacite:publicationYear>1997</datacite:publicationYear>
+      <resourceType resourceTypeGeneral="Dataset">Survey Data</resourceType>
+      <datacite:subjects>
+        <datacite:subject xml:lang="de">Kulturelle Aktivitäten und kulturelle Teilhabe</datacite:subject>
+        <datacite:subject xml:lang="en">Cultural activities and participation</datacite:subject>
+        <datacite:subject xml:lang="fr">Activités culturelles et participation</datacite:subject>
+        <datacite:subject xml:lang="de">POLITIK</datacite:subject>
+        <datacite:subject xml:lang="en">POLITICS</datacite:subject>
+        <datacite:subject xml:lang="fr">POLITIQUE</datacite:subject>
+        <datacite:subject xml:lang="de">Soziales Verhalten und soziale Einstellungen</datacite:subject>
+        <datacite:subject xml:lang="en">Social behaviour and attitudes</datacite:subject>
+        <datacite:subject xml:lang="fr">Attitudes et comportements sociaux</datacite:subject>
+      </datacite:subjects>
+      <datacite:dates>
+        <datacite:date dateType="Issued">1997-10-10</datacite:date>
+      </datacite:dates>
+      <datacite:alternateIdentifiers>
+        <datacite:alternateIdentifier alternateIdentifierType="SWISSUbase">0bc01797-aef3-4fda-953b-91edb56852d9</datacite:alternateIdentifier>
+      </datacite:alternateIdentifiers>
+      <datacite:relatedIdentifiers/>
+      <datacite:formats/>
+      <datacite:rightsList>
+        <datacite:rights xml:lang="en">Additional data use purposes: Research purposes, Teaching purposes, Education and training purposes, Other non-commercial purposes</datacite:rights>
+        <datacite:rights xml:lang="de">Zusätzliche Datennutzungszwecke: Forschungszwecke, Lehrzwecke, Bildungs- und Ausbilundszwecke, Andere nicht-kommerzielle Zwecke</datacite:rights>
+        <datacite:rights xml:lang="fr">Finalités supplémentaires d’utilisation des données: Fins de recherche, Fins d’enseignement, Fins d’éducation et de formation, Autres fins non commerciales</datacite:rights>
+        <datacite:rights xml:lang="de">Sondergenehmigung: Keine</datacite:rights>
+        <datacite:rights xml:lang="en">Special permission: None</datacite:rights>
+        <datacite:rights xml:lang="fr">Permission spéciale: Aucune</datacite:rights>
+      </datacite:rightsList>
+      <datacite:descriptions>
+        <datacite:description descriptionType="Abstract" xml:lang="fr">Cette recherche s'est proposée d'étudier de manière comparative les nouveaux mouvements sociaux (NMS) dans 4 pays de l'Europe occidentale: Allemagne, France, Pays-Bas et Suisse. Nous avons concentré notre attention sur 5 mouvements: pour la paix, écologistes, des homosexuels, de solidarité et des autonomes urbains. Nous avons visé 3 niveaux d'analyse: l'action (événements de protestation), l'organisation (organisation des mouvements sociaux) et l'interaction (campagnes d'action). L'hypothèse générale est que le développement des NMS est largement influencé par le contexte politique, notamment de la structure des opportunités politiques (POS). Cette dernière comprend la structure institutionnelle formelle, la stratégie dominante des autorités et la configuration du pouvoir. Nous avons suivi l'approche de processus politiques.</datacite:description>
+        <datacite:description descriptionType="Abstract" xml:lang="en">This study investigates in a comparative way the new social movements (NSMs) in 4 countries of Western Europe: Germany, France, the Netherlands and Switzerland. We have focused our attention on 5 movements: for peace, environmentalists, homosexuals, solidarity and urban autonomists. We have targeted 3 levels of analysis: action (protest events), organization (organization of social movements) and interaction (action campaigns). The general hypthesis is that the development of NSMs is largely influenced by the political context, including the political opportunities structure (POS). The latter includes the formal institutional structure, the dominant strategy of the authorities and the configuration of power. We followed the political process approach.</datacite:description>
+      </datacite:descriptions>
+      <datacite:geoLocations>
+        <datacite:geoLocation>
+          <datacite:geoLocationPlace xml:lang="de">Frankreich</datacite:geoLocationPlace>
+        </datacite:geoLocation>
+        <datacite:geoLocation>
+          <datacite:geoLocationPlace xml:lang="en">France</datacite:geoLocationPlace>
+        </datacite:geoLocation>
+        <datacite:geoLocation>
+          <datacite:geoLocationPlace xml:lang="fr">France</datacite:geoLocationPlace>
+        </datacite:geoLocation>
+        <datacite:geoLocation>
+          <datacite:geoLocationPlace xml:lang="de">Deutschland</datacite:geoLocationPlace>
+        </datacite:geoLocation>
+        <datacite:geoLocation>
+          <datacite:geoLocationPlace xml:lang="en">Germany</datacite:geoLocationPlace>
+        </datacite:geoLocation>
+        <datacite:geoLocation>
+          <datacite:geoLocationPlace xml:lang="fr">Allemagne</datacite:geoLocationPlace>
+        </datacite:geoLocation>
+        <datacite:geoLocation>
+          <datacite:geoLocationPlace xml:lang="de">Westeuropa</datacite:geoLocationPlace>
+        </datacite:geoLocation>
+        <datacite:geoLocation>
+          <datacite:geoLocationPlace xml:lang="en">Western Europe</datacite:geoLocationPlace>
+        </datacite:geoLocation>
+        <datacite:geoLocation>
+          <datacite:geoLocationPlace xml:lang="fr">Europe occidentale</datacite:geoLocationPlace>
+        </datacite:geoLocation>
+        <datacite:geoLocation>
+          <datacite:geoLocationPlace xml:lang="de">Europa</datacite:geoLocationPlace>
+        </datacite:geoLocation>
+        <datacite:geoLocation>
+          <datacite:geoLocationPlace xml:lang="en">Europe</datacite:geoLocationPlace>
+        </datacite:geoLocation>
+        <datacite:geoLocation>
+          <datacite:geoLocationPlace xml:lang="fr">Europe</datacite:geoLocationPlace>
+        </datacite:geoLocation>
+        <datacite:geoLocation>
+          <datacite:geoLocationPlace xml:lang="de">Niederlande</datacite:geoLocationPlace>
+        </datacite:geoLocation>
+        <datacite:geoLocation>
+          <datacite:geoLocationPlace xml:lang="en">Netherlands</datacite:geoLocationPlace>
+        </datacite:geoLocation>
+        <datacite:geoLocation>
+          <datacite:geoLocationPlace xml:lang="fr">Pays-Bas</datacite:geoLocationPlace>
+        </datacite:geoLocation>
+        <datacite:geoLocation>
+          <datacite:geoLocationPlace xml:lang="de">Schweiz</datacite:geoLocationPlace>
+        </datacite:geoLocation>
+        <datacite:geoLocation>
+          <datacite:geoLocationPlace xml:lang="en">Switzerland</datacite:geoLocationPlace>
+        </datacite:geoLocation>
+        <datacite:geoLocation>
+          <datacite:geoLocationPlace xml:lang="fr">Suisse</datacite:geoLocationPlace>
+        </datacite:geoLocation>
+      </datacite:geoLocations>
+    </resource>
+  </metadata>
+</record>

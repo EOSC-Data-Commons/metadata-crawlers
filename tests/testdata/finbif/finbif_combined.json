@@ -1,0 +1,168 @@
+{
+        "id": "HR.4211",
+        "dataset": {
+            "key": "3acd530d-9f40-46dc-be1a-390d863113b2",
+            "installationKey": "b1304814-56cc-434e-8d40-2b24fa21526f",
+            "publishingOrganizationKey": "a4586a48-8313-4c8b-bf7b-cbf450617c06",
+            "networkKeys": [],
+            "doi": "10.15468/ad774n",
+            "external": false,
+            "numConstituents": 0,
+            "type": "OCCURRENCE",
+            "title": "HAMBI ABM yeast collection (ABM)",
+            "description": "<p>Collection of yeasts</p>",
+            "language": "eng",
+            "citation": {
+                "text": "Microbial Domain Biological Resource Center: HAMBI ABM yeast collection (ABM)",
+                "citationProvidedBySource": false
+            },
+            "contactsCitation": [],
+            "lockedForAutoUpdate": false,
+            "createdBy": "finbif",
+            "modifiedBy": "crawler.gbif.org",
+            "created": "2025-08-01T06:53:19.396+00:00",
+            "modified": "2026-05-14T22:16:15.689+00:00",
+            "contacts": [
+                {
+                    "key": 7012020,
+                    "type": "ADMINISTRATIVE_POINT_OF_CONTACT",
+                    "primary": true,
+                    "userId": [],
+                    "firstName": "Pekka",
+                    "lastName": "Oivanen",
+                    "position": [],
+                    "email": [
+                        "pekka.oivanen@helsinki.fi"
+                    ],
+                    "phone": [],
+                    "homepage": [],
+                    "address": [],
+                    "createdBy": "crawler.gbif.org",
+                    "modifiedBy": "crawler.gbif.org",
+                    "created": "2026-05-14T22:16:15.649+00:00",
+                    "modified": "2026-05-14T22:16:15.649+00:00"
+                },
+                {
+                    "key": 7012021,
+                    "type": "ADMINISTRATIVE_POINT_OF_CONTACT",
+                    "primary": false,
+                    "userId": [],
+                    "firstName": "FinBIF",
+                    "position": [],
+                    "email": [
+                        "helpdesk@laji.fi"
+                    ],
+                    "phone": [],
+                    "homepage": [],
+                    "address": [],
+                    "createdBy": "crawler.gbif.org",
+                    "modifiedBy": "crawler.gbif.org",
+                    "created": "2026-05-14T22:16:15.652+00:00",
+                    "modified": "2026-05-14T22:16:15.652+00:00"
+                }
+            ],
+            "endpoints": [
+                {
+                    "key": 1130067,
+                    "type": "EML",
+                    "url": "https://gbif.laji.fi/eml/HR.4211.zip",
+                    "createdBy": "finbif",
+                    "modifiedBy": "finbif",
+                    "created": "2025-08-01T06:53:19.638+00:00",
+                    "modified": "2025-08-01T06:53:19.638+00:00",
+                    "machineTags": []
+                },
+                {
+                    "key": 1130066,
+                    "type": "DWC_ARCHIVE",
+                    "url": "https://gbif.laji.fi/archives/HR.4211.zip",
+                    "createdBy": "finbif",
+                    "modifiedBy": "finbif",
+                    "created": "2025-08-01T06:53:19.565+00:00",
+                    "modified": "2025-08-01T06:53:19.565+00:00",
+                    "machineTags": []
+                }
+            ],
+            "machineTags": [
+                {
+                    "key": 30945759,
+                    "namespace": "crawler.gbif.org",
+                    "name": "crawl_attempt",
+                    "value": "42",
+                    "createdBy": "crawler.gbif.org",
+                    "created": "2026-05-14T22:15:17.364+00:00"
+                }
+            ],
+            "tags": [],
+            "identifiers": [
+                {
+                    "key": 445629,
+                    "type": "URL",
+                    "identifier": "http://tun.fi/HR.4211",
+                    "createdBy": "finbif",
+                    "created": "2025-08-01T06:53:19.711+00:00",
+                    "primary": false
+                }
+            ],
+            "comments": [],
+            "bibliographicCitations": [],
+            "curatorialUnits": [],
+            "taxonomicCoverages": [],
+            "geographicCoverages": [],
+            "temporalCoverages": [],
+            "keywordCollections": [],
+            "countryCoverage": [],
+            "collections": [],
+            "dataDescriptions": [],
+            "license": "http://creativecommons.org/licenses/by/4.0/legalcode",
+            "dwca": {
+                "coreType": "http://rs.tdwg.org/dwc/terms/Occurrence",
+                "extensions": [],
+                "modified": "2026-05-14T22:16:15.587+00:00"
+            }
+        },
+        "additional": {
+            "@context": "http://schema.laji.fi/context/collection-en.jsonld",
+            "abbreviation": "ABM",
+            "collectionCode": "ABM",
+            "collectionName": "HAMBI ABM yeast collection",
+            "collectionQuality": "MY.collectionQualityEnum3",
+            "collectionSize": "2000",
+            "collectionType": "MY.collectionTypeOther",
+            "contactEmail": "pekka.oivanen@helsinki.fi",
+            "coverageBasis": "Industrial yeasts",
+            "description": "Collection of yeasts",
+            "digitizedSize": "100",
+            "geographicCoverage": "Europe, Finland",
+            "hierarchyType": "MY.hierarchyTypeDocumentParent",
+            "institutionCode": "HAMBI",
+            "intellectualOwner": "Microbial Domain Biological Resource Center HAMBI",
+            "intellectualRights": "MY.intellectualRightsCC-BY",
+            "isPartOf": "HR.1547",
+            "metadataStatus": "MY.metadataStatusPreliminary",
+            "personResponsible": "Oivanen, Pekka",
+            "publicAccess": true,
+            "publisherShortname": "HAMBI",
+            "shareToFEO": true,
+            "shareToGbif": "HR.4211",
+            "taxonomicCoverage": "Ascomycota, mostly Saccharomycotina",
+            "temporalCoverage": "1970...",
+            "dateCreated": "2021-09-06T11:23:51+0300",
+            "dateEdited": "2025-07-17T15:04:23+0300",
+            "owner": "MOS.3020",
+            "id": "HR.4211",
+            "downloadRequestHandler": [
+                "MA.203"
+            ],
+            "longName": "HAMBI ABM yeast collection (ABM)",
+            "hasChildren": false,
+            "longNameMultiLang": {
+                "fi": "HAMBI ABM hiivakokoelma (ABM)",
+                "en": "HAMBI ABM yeast collection (ABM)"
+            },
+            "descriptionMultiLang": {
+                "en": "Collection of yeasts",
+                "fi": "Hiivakantakokoelma"
+            }
+        }
+    }

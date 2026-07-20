@@ -1,0 +1,94 @@
+<record xmlns="http://www.openarchives.org/OAI/2.0/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <header>
+    <identifier>oai:swissubase.ch:0bc01797-aef3-4fda-953b-91edb56852d9</identifier>
+    <datestamp>2026-03-24T12:04:32Z</datestamp>
+  </header>
+  <metadata>
+    <codeBook xmlns="ddi:codebook:2_5" version="2.5" xsi:schemaLocation="ddi:codebook:2_5 http://www.ddialliance.org/Specification/DDI-Codebook/2.5/XMLSchema/codebook.xsd" xml:lang="fr">
+      <docDscr>
+        <citation>
+          <titlStmt>
+            <titl xml:lang="fr">Nouveaux mouvements sociaux dans les années 1980, données internationales</titl>
+          </titlStmt>
+        </citation>
+      </docDscr>
+      <stdyDscr>
+        <citation>
+          <titlStmt>
+            <titl xml:lang="fr">Nouveaux mouvements sociaux dans les années 1980, données internationales</titl>
+            <IDNo agency="SWISSUbase">0bc01797-aef3-4fda-953b-91edb56852d9</IDNo>
+            <IDNo agency="DOI">10.23662/FORS-DS-140-1</IDNo>
+          </titlStmt>
+          <rspStmt>
+            <AuthEnty>Kriesi, Hanspeter</AuthEnty>
+          </rspStmt>
+          <distStmt>
+            <distrbtr xml:lang="fr">FORS</distrbtr>
+            <distrbtr xml:lang="en">FORS</distrbtr>
+            <distrbtr xml:lang="de">FORS</distrbtr>
+            <distDate date="1997-10-10T00:00:00Z">1997</distDate>
+          </distStmt>
+          <holdings xml:lang="en" URI="https://doi.org/10.23662/FORS-DS-140-1"/>
+        </citation>
+        <stdyInfo>
+          <subject>
+            <topcClas xml:lang="de">Kulturelle Aktivitäten und kulturelle Teilhabe</topcClas>
+            <topcClas xml:lang="en">Cultural activities and participation</topcClas>
+            <topcClas xml:lang="fr">Activités culturelles et participation</topcClas>
+            <topcClas xml:lang="de">POLITIK</topcClas>
+            <topcClas xml:lang="en">POLITICS</topcClas>
+            <topcClas xml:lang="fr">POLITIQUE</topcClas>
+            <topcClas xml:lang="de">Soziales Verhalten und soziale Einstellungen</topcClas>
+            <topcClas xml:lang="en">Social behaviour and attitudes</topcClas>
+            <topcClas xml:lang="fr">Attitudes et comportements sociaux</topcClas>
+          </subject>
+          <abstract xml:lang="fr">Cette recherche s'est proposée d'étudier de manière comparative les nouveaux mouvements sociaux (NMS) dans 4 pays de l'Europe occidentale: Allemagne, France, Pays-Bas et Suisse. Nous avons concentré notre attention sur 5 mouvements: pour la paix, écologistes, des homosexuels, de solidarité et des autonomes urbains. Nous avons visé 3 niveaux d'analyse: l'action (événements de protestation), l'organisation (organisation des mouvements sociaux) et l'interaction (campagnes d'action).
+L'hypothèse générale est que le développement des NMS est largement influencé par le contexte politique, notamment de la structure des opportunités politiques (POS). Cette dernière comprend la structure institutionnelle formelle, la stratégie dominante des autorités et la configuration du pouvoir. Nous avons suivi l'approche de processus politiques.</abstract>
+          <abstract xml:lang="en">This study investigates in a comparative way the new social movements (NSMs) in 4 countries of Western Europe: Germany, France, the Netherlands and Switzerland. We have focused our attention on 5 movements: for peace, environmentalists, homosexuals, solidarity and urban autonomists. We have targeted 3 levels of analysis: action (protest events), organization (organization of social movements) and interaction (action campaigns).
+The general hypthesis is that the development of NSMs is largely influenced by the political context, including the political opportunities structure (POS). The latter includes the formal institutional structure, the dominant strategy of the authorities and the configuration of power. We followed the political process approach.</abstract>
+          <sumDscr>
+            <nation xml:lang="de">Frankreich</nation>
+            <nation xml:lang="en">France</nation>
+            <nation xml:lang="fr">France</nation>
+            <nation xml:lang="de">Deutschland</nation>
+            <nation xml:lang="en">Germany</nation>
+            <nation xml:lang="fr">Allemagne</nation>
+            <nation xml:lang="de">Westeuropa</nation>
+            <nation xml:lang="en">Western Europe</nation>
+            <nation xml:lang="fr">Europe occidentale</nation>
+            <nation xml:lang="de">Europa</nation>
+            <nation xml:lang="en">Europe</nation>
+            <nation xml:lang="fr">Europe</nation>
+            <nation xml:lang="de">Niederlande</nation>
+            <nation xml:lang="en">Netherlands</nation>
+            <nation xml:lang="fr">Pays-Bas</nation>
+            <nation xml:lang="de">Schweiz</nation>
+            <nation xml:lang="en">Switzerland</nation>
+            <nation xml:lang="fr">Suisse</nation>
+          </sumDscr>
+        </stdyInfo>
+        <dataAccs>
+          <useStmt>
+            <restrctn xml:lang="en">Additional data use purposes: Research purposes, Teaching purposes, Education and training purposes, Other non-commercial purposes</restrctn>
+            <restrctn xml:lang="de">Zusätzliche Datennutzungszwecke: Forschungszwecke, Lehrzwecke, Bildungs- und Ausbilundszwecke, Andere nicht-kommerzielle Zwecke</restrctn>
+            <restrctn xml:lang="fr">Finalités supplémentaires d’utilisation des données: Fins de recherche, Fins d’enseignement, Fins d’éducation et de formation, Autres fins non commerciales</restrctn>
+            <restrctn xml:lang="de">Sondergenehmigung: Keine</restrctn>
+            <restrctn xml:lang="en">Special permission: None</restrctn>
+            <restrctn xml:lang="fr">Permission spéciale: Aucune</restrctn>
+          </useStmt>
+        </dataAccs>
+      </stdyDscr>
+      <fileDscr>
+        <fileTxt>
+          <fileName xml:lang="fr">swissubase_140_1_0</fileName>
+          <fileName xml:lang="fr">Fichier de données</fileName>
+          <fileName xml:lang="fr">Fichier de données</fileName>
+          <fileName xml:lang="fr">Fichier de données</fileName>
+          <fileName xml:lang="fr">Documentation des données: 1ère partie</fileName>
+          <fileName xml:lang="fr">Documentation des données: 2ème partie</fileName>
+          <fileName xml:lang="fr">Documentation des données: 3ème partie</fileName>
+        </fileTxt>
+      </fileDscr>
+    </codeBook>
+  </metadata>
+</record>
