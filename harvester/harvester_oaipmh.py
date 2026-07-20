@@ -124,6 +124,49 @@ def fetch_additional_oai(record_id: str, base_url: str, metadata_prefix: str) ->
     except Exception as e:
         logger.warning("Error fetching %s metadata for %s: %s", metadata_prefix, record_id, e)
         return None
+    
+
+
+def fetch_additional_metadata_zenodo(record_id: str, base_url: str) -> Optional[str]:
+    """
+    Fetch additional metadata (files) from a Zenodo record via its API.
+
+    :param record_id: Zenodo record identifier is like "oai:zenodo.org:8435696".
+    :param base_url: Base URL of Zenodo additional API for file metadata.
+    :return: JSON string of the record's file metadata or None if an error occurs.
+    """
+
+    # Zenodo OAI IDs come in the form "oai:zenodo.org:8435696".
+    # We need only the numeric part at the end for API calls.
+    # split(':') -> ['oai', 'zenodo.org', '8435696']
+    # [-1] -> '8435696'
+    record_id = record_id.split(":")[-1]
+
+    # Construct the full URL to fetch files for this specific record
+    # Example: "https://zenodo.org/api/records/8435696/files"
+    url = f"{base_url}/{record_id}/files"
+
+    try:
+        with httpx.Client() as client:
+            response = client.get(url)
+            response.raise_for_status()
+            return json.dumps(response.json(), indent = 2)
+
+    except httpx.HTTPStatusError as e:
+        logger.warning(
+            "Failed to fetch Zenodo data for %s: HTTP %s",
+            record_id,
+            e.response.status_code if e.response else "N/A",
+        )
+        return None
+
+    except httpx.RequestError as e:
+        logger.error(
+            "Network error fetching Zenodo data for %s: %s",
+            record_id,
+            str(e),
+        )
+        return None
 
 
 
@@ -217,6 +260,12 @@ def transformation_and_additional_metadata(raw_metadata: str | None,
                 raise ValueError("Incorrect identifier for HAL additional metadata")
             additional_metadata = fetch_additional_metadata_hal(
                 record_id = identifier_for_additional_metadata,
+                base_url = additional_endpoint
+            )
+
+        elif additional_protocol == "ZENODO_API": # ZENODO
+            additional_metadata = fetch_additional_metadata_zenodo(
+                record_id = identifier,
                 base_url = additional_endpoint
             )
 
@@ -448,7 +497,7 @@ def run_harvest_loop(record_iter, need_timeout: bool, config: dict, metadata_pre
             failed_events += 1
             continue
         if need_timeout and record_count % 10 == 0:
-            time.sleep(2)
+            time.sleep(2.1)
 
         status = process_record(record, config, metadata_prefix, harvest_url, code, harvest_run_id, repository_name)
 
