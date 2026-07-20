@@ -263,6 +263,12 @@ def transformation_and_additional_metadata(raw_metadata: str | None,
                 base_url = additional_endpoint
             )
 
+        elif additional_protocol == "ZENODO_API": # ZENODO
+            additional_metadata = fetch_additional_metadata_zenodo(
+                record_id = identifier,
+                base_url = additional_endpoint
+            )
+
     except Exception as e:
         logger.error("Error when fetching additional metadata: %s", e)
         return None, None
@@ -491,7 +497,7 @@ def run_harvest_loop(record_iter, need_timeout: bool, config: dict, metadata_pre
             failed_events += 1
             continue
         if need_timeout and record_count % 10 == 0:
-            time.sleep(2)
+            time.sleep(2.1)
 
         status = process_record(record, config, metadata_prefix, harvest_url, code, harvest_run_id, repository_name)
 
