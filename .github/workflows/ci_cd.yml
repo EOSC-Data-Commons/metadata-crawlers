@@ -28,4 +28,4 @@ jobs:
         run: PYTHONPATH=. python -m pytest tests
 
       - name: run mypy
-        run: mypy
+        run: mypy --config-file mypy.ini
