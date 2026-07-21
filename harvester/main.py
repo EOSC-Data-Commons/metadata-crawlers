@@ -2,7 +2,8 @@ import argparse, sys
 import logging
 from datetime import datetime, timezone
 
-from .harvester_oaipmh import run_harvester_oaipmh, close_dataverse_client
+from .additional_metadata_functions import close_dataverse_client
+from .harvester_oaipmh import run_harvester_oaipmh
 from harvester.harvester_finbif import run_harvester_finbif
 from harvester.harvester_mdposit import run_harvester_mdposit
 from .db_api_functions import start_harvest_run, close_harvest_run, get_open_run_id, close_warehouse_client
