@@ -10,7 +10,7 @@ _DATAVERSE_CLIENT = httpx.Client(timeout = 30)
 
 logger = logging.getLogger(__name__)
 
-def close_dataverse_client():
+def close_dataverse_client() -> None:
     try:
         _DATAVERSE_CLIENT.close()
     except Exception:
@@ -36,7 +36,7 @@ def fetch_dataverse_json(doi: str, base_url: str, exporter: str | None) -> Optio
         logger.warning(
             "Failed to fetch Dataverse JSON for %s: HTTP %s",
             doi,
-            e.response.status_code if e.response else "N/A",
+            e.response.status_code,
         )
         return None
     except httpx.RequestError as e:
@@ -83,7 +83,7 @@ def fetch_additional_metadata_hal(record_id: str, base_url: str) -> Optional[str
         logger.warning(
             "Failed to fetch HAL JSON for %s: HTTP %s",
             record_id,
-            e.response.status_code if e.response else "N/A",
+            e.response.status_code,
         )
         return None
 
@@ -143,7 +143,7 @@ def fetch_additional_metadata_zenodo(record_id: str, base_url: str) -> Optional[
         logger.warning(
             "Failed to fetch Zenodo data for %s: HTTP %s",
             record_id,
-            e.response.status_code if e.response else "N/A",
+            e.response.status_code,
         )
         return None
 
