@@ -4,7 +4,7 @@ from pathlib import Path
 import os
 from harvester.settings import settings
 
-def setup_logging():
+def setup_logging() -> None:
     log_dir = Path(settings.LOG_DIR)
     log_dir.mkdir(parents=True, exist_ok=True)
 

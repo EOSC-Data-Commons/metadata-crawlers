@@ -2,6 +2,7 @@ import argparse, sys
 import logging
 from datetime import datetime, timezone
 
+from typing import Any
 from .additional_metadata_functions import close_dataverse_client
 from .harvester_oaipmh import run_harvester_oaipmh
 from harvester.harvester_finbif import run_harvester_finbif
@@ -12,7 +13,7 @@ from .logging import setup_logging
 
 logger = logging.getLogger(__name__)
 
-def main():
+def main() -> int:
     setup_logging()
 
     parser = argparse.ArgumentParser(description="Metadata Harvester")
