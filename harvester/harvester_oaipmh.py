@@ -2,9 +2,11 @@ import logging, os, time
 
 from datetime import datetime
 from lxml import etree as ET
-from oaipmh_scythe import Scythe
+from oaipmh_scythe import Scythe, OAIResponse
 from collections.abc import Iterable, Iterator
 from typing import Any
+
+from oaipmh_scythe.models import Record
 
 from .additional_metadata_functions import fetch_dataverse_json, fetch_additional_oai, fetch_additional_metadata_hal, \
     fetch_additional_metadata_zenodo
@@ -121,7 +123,8 @@ def transformation_and_additional_metadata(raw_metadata: str | None,
     return (raw_metadata, additional_metadata)
 
 
-def process_record(record, config: dict, metadata_prefix: str, harvest_url: str, code: str, harvest_run_id: str, repository_name: str) -> str:
+def process_record(record: Record, config: dict[str, Any], metadata_prefix: str, harvest_url: str,
+                    code: str, harvest_run_id: str, repository_name: str) -> str:
     """
     Process a single OAI-PMH record: extract and transform its metadata,
     then send the resulting event to the warehouse.
@@ -140,9 +143,12 @@ def process_record(record, config: dict, metadata_prefix: str, harvest_url: str,
     """
     try:
         identifier = record.header.identifier
+        if identifier is None:
+            logger.error("Record has no identifier, skipping")
+            return "failed"
         datestamp = record.header.datestamp
         is_deleted = getattr(record.header, "status", None) == "deleted"
-        raw_metadata = ET.tostring(record.xml, pretty_print=True, encoding = "unicode")
+        raw_metadata: str | None = ET.tostring(record.xml, pretty_print=True, encoding="unicode")
 
         # special case where we skip some records for PaNOSC ALBA repository because those records have poor metadata
         if repository_name == "ALBA":
@@ -196,7 +202,7 @@ def process_record(record, config: dict, metadata_prefix: str, harvest_url: str,
 
 
 
-def fetch_records_by_id(client, record_ids: set[str], metadata_prefix: str, repository_name: str) -> Iterator[Any]:
+def fetch_records_by_id(client: Scythe, record_ids: set[str], metadata_prefix: str, repository_name: str) -> Iterator[OAIResponse | Record]:
     """
     Fetch records for a list of IDs
 
@@ -217,8 +223,8 @@ def fetch_records_by_id(client, record_ids: set[str], metadata_prefix: str, repo
 
 
 
-def fetch_records_by_sets(client, sets: Iterable[str | None], from_: str | None, 
-                          from_date: str | None, until_: str | None, metadata_prefix: str) -> Iterator[Any]:
+def fetch_records_by_sets(client: Scythe, sets: Iterable[str | None], from_: str | None,
+                          from_date: str | None, until_: str | None, metadata_prefix: str) -> Iterator[OAIResponse | Record]:
     """
     Yield OAI-PMH records across all configured sets, either incrementally (from_ to until_) or as a full harvest.
 
@@ -252,7 +258,7 @@ def fetch_records_by_sets(client, sets: Iterable[str | None], from_: str | None,
 
 
 
-def run_harvest_loop(record_iter, need_timeout: bool, config: dict, metadata_prefix: str, 
+def run_harvest_loop(record_iter: Iterator[OAIResponse | Record], need_timeout: bool, config: dict[str, Any], metadata_prefix: str,
                      harvest_url: str, code: str, harvest_run_id: str, repository_name: str
                      ) -> tuple[int, int, int]:
     """
@@ -281,6 +287,10 @@ def run_harvest_loop(record_iter, need_timeout: bool, config: dict, metadata_pre
         if record is None:
             failed_events += 1
             continue
+        if not isinstance(record, Record):
+            logger.warning("Skipping unexpected OAIResponse (not a Record)")
+            failed_events += 1
+            continue
         if need_timeout and record_count % 10 == 0:
             time.sleep(2.1)
 
@@ -297,7 +307,7 @@ def run_harvest_loop(record_iter, need_timeout: bool, config: dict, metadata_pre
 
 
 
-def run_harvester_oaipmh(run_info: dict) -> bool:
+def run_harvester_oaipmh(run_info: dict[str, Any]) -> bool:
     """
     Run an OAI-PMH harvest.
 
