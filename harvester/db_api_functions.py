@@ -1,7 +1,6 @@
-import os
 import httpx
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Any
 from harvester.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -16,7 +15,7 @@ HARVEST_EVENT_URL = f"{base_url}/harvest_event"
 _WAREHOUSE_CLIENT = httpx.Client(timeout=timeout)
 
 
-def start_harvest_run(harvest_url: str) -> Optional[Dict[str, Any]]:
+def start_harvest_run(harvest_url: str) -> Optional[dict[str, Any]]:
     """
     POST /harvest_run to create a new harvest run. 
     
