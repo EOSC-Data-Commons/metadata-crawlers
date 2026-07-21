@@ -3,7 +3,7 @@ from unittest.mock import patch, Mock
 from pathlib import Path
 from lxml import etree as ET
 from harvester.harvester_oaipmh import transformation_and_additional_metadata, run_harvester_oaipmh
-
+from oaipmh_scythe.models import Record
 
 # -----------------------------
 # Test helpers (file loading & normalization)
@@ -159,6 +159,7 @@ class TestRunHarvester(unittest.TestCase):
 
         # mock a single harvested OAI record
         mock_record = Mock()
+        mock_record.__class__ = Record
         mock_record.header.identifier = "oai:test:123"
         mock_record.header.datestamp = "2025-01-01"
         mock_record.header.status = None
@@ -217,6 +218,7 @@ class TestRunHarvester(unittest.TestCase):
 
         # mock a deleted OAI record
         mock_record = Mock()
+        mock_record.__class__ = Record
         mock_record.header.identifier = "oai:test:123"
         mock_record.header.datestamp = "2025-01-01"
         mock_record.header.status = "deleted"
