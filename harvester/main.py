@@ -1,4 +1,4 @@
-import argparse, sys
+import argparse
 import logging
 from datetime import datetime, timezone
 
@@ -12,7 +12,7 @@ from .logging import setup_logging
 
 logger = logging.getLogger(__name__)
 
-def main():
+def main() -> int:
     setup_logging()
 
     parser = argparse.ArgumentParser(description="Metadata Harvester")

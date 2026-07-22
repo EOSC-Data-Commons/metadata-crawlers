@@ -6,9 +6,9 @@ import json
 import os
 from datetime import datetime, timezone
 from lxml import etree
-from harvester.settings import settings
 from harvester.db_api_functions import send_harvest_event
 import re
+from typing import cast, Any
 
 
 logger = logging.getLogger(__name__)
@@ -54,14 +54,14 @@ _ASYNC_FINBIF_CLIENT = httpx.AsyncClient(
     timeout=httpx.Timeout(120),
 )
 
-def shutdown_client():
+def shutdown_client() -> None:
     try:
         _FINBIF_CLIENT.close()
         logger.info("Client closed successfully.")
     except Exception as e:
         logger.error("Error closing client: %s", e)
 
-async def shutdown_async_client():
+async def shutdown_async_client() -> None:
     """
     Shutdown the shared async client.
     """
@@ -72,7 +72,7 @@ async def shutdown_async_client():
         logger.error("Error closing async client: %s", e)
 
 
-def build_datacite_xml(record: dict) -> str:
+def build_datacite_xml(record: dict[str, Any]) -> str:
     dataset = record["dataset"]
     additional = record["additional"]
     dataset_id = record["id"]
@@ -80,7 +80,7 @@ def build_datacite_xml(record: dict) -> str:
     # OAI-PMH wrapper
     root = etree.Element(
         f"{{{OAI_NS}}}record",
-        nsmap={None: OAI_NS, "xsi": XSI_NS},
+        nsmap={cast(Any, None): OAI_NS, "xsi": XSI_NS},
     )
 
     # Header
@@ -97,7 +97,7 @@ def build_datacite_xml(record: dict) -> str:
     resource = etree.SubElement(
         metadata,
         "resource",
-        nsmap={None: DC_NS, "xsi": XSI_NS},
+        nsmap={cast(Any, None): DC_NS, "xsi": XSI_NS},
         attrib={f"{{{XSI_NS}}}schemaLocation": SCHEMA_LOCATION},
     )
 
@@ -193,7 +193,7 @@ def build_datacite_xml(record: dict) -> str:
 
     return etree.tostring(root, pretty_print=True, xml_declaration=True, encoding="UTF-8").decode()
 
-def filter_datasets_by_date(datasets: list[dict], from_date: datetime | None) -> list[dict]:
+def filter_datasets_by_date(datasets: list[dict[str, Any]], from_date: datetime | None) -> list[dict[str, Any]]:
     if from_date is None:
         return datasets
 
@@ -215,7 +215,7 @@ def filter_datasets_by_date(datasets: list[dict], from_date: datetime | None) ->
     )
     return filtered
 
-def harvest_datasets(from_date: datetime | None) -> list[dict]:
+def harvest_datasets(from_date: datetime | None) -> list[dict[str, Any]]:
     logger.info(f'Getting datasets with from_date: {from_date}')
 
     response = _FINBIF_CLIENT.get(f'{API_BASE}/v1/installation/{KEY}/dataset', params={"limit": 1000}, headers={"Accept": "application/json", "User-Agent": "EOSC Data Commons harvester"})
@@ -225,7 +225,7 @@ def harvest_datasets(from_date: datetime | None) -> list[dict]:
 
     return filter_datasets_by_date(datasets, from_date)
 
-async def harvest_finbif(run_info: dict) -> bool:
+async def harvest_finbif(run_info: dict[str, Any]) -> bool:
     harvest_events = 0
     failed_events = 0
     record_counter = 0
@@ -319,7 +319,7 @@ async def harvest_finbif(run_info: dict) -> bool:
 
     return success
 
-def run_harvester_finbif(run_info: dict) -> bool:
+def run_harvester_finbif(run_info: dict[str, Any]) -> bool:
     """
     Entry point for FinBIF harvesting from main.py
     """
