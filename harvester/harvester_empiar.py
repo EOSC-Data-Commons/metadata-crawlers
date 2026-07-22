@@ -18,7 +18,7 @@ PAGE_SIZE = 100
 
 
 
-def search_page(page: int) -> Dict[str, Any]:
+def search_page(page: int, query: str) -> Dict[str, Any]:
     """
     Fetch one page of results from `GET /emdb/api/empiar/search/{query}`.
  
@@ -30,7 +30,7 @@ def search_page(page: int) -> Dict[str, Any]:
  
     :return: The parsed JSON payload for that page.
     """
-    url = DEFAULT_BASE_URL + SEARCH_PATH.format(query = "*")
+    url = DEFAULT_BASE_URL + SEARCH_PATH.format(query = query)
     params: Dict[str, Any] = {"rows": PAGE_SIZE, "page": page, "fl": "*"}
     response = _EMPIAR_CLIENT.get(url, params = params)
     response.raise_for_status()
@@ -48,8 +48,33 @@ def search_all() -> Iterator[Dict[str, Any]]:
     """
     page = 1
     total_records = 0
+    query = "*"
     while True:
-        payload = search_page(page)
+        payload = search_page(page, query)
+
+        if not payload:
+            logger.info("Page %d empty, stopping", page)
+            break
+
+        total_records += len(payload)
+        logger.info(
+            "Page %d: %d records (%d total so far)",
+            page, len(payload), total_records,
+        )
+        yield payload
+
+        page += 1
+        time.sleep(2)
+
+
+
+def search_incremental(from_date: str, until_date: str) -> Iterator[Dict[str, Any]]:
+    """"""
+    page = 1
+    total_records = 0
+    query = f"database:EMPIAR AND update_date:[{from_date} TO {until_date}]"
+    while True:
+        payload = search_page(page, query)
 
         if not payload:
             logger.info("Page %d empty, stopping", page)
@@ -371,11 +396,12 @@ def run_harvester_empiar(run_info: dict) -> bool:
             raise ValueError("config is missing")
         harvest_url = config.get("harvest_url")
         from_date = run_info.get("from_date")
+        until_date = run_info.get("until_date")
         projects = []
         if not from_date:
             projects = list(search_all())
-        # else:
-        #     projects = search_incremental(config)
+        else:
+            projects = search_incremental(from_date, until_date)
         
         for page in projects:
             for empiar_key, record in page.items():
