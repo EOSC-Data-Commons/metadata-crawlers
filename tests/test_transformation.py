@@ -162,7 +162,7 @@ class TestRunHarvester(unittest.TestCase):
 
         # mock a single harvested OAI record
         mock_record = Mock(spec=Record)
-        # mock_record.__class__ = Record
+        mock_record.header = Mock()
         mock_record.header.identifier = "oai:test:123"
         mock_record.header.datestamp = "2025-01-01"
         mock_record.header.status = None
@@ -217,7 +217,7 @@ class TestRunHarvester(unittest.TestCase):
 
         # mock a deleted OAI record
         mock_record = Mock(spec = Record)
-        # mock_record.__class__ = Record
+        mock_record.header = Mock()
         mock_record.header.identifier = "oai:test:123"
         mock_record.header.datestamp = "2025-01-01"
         mock_record.header.status = "deleted"
