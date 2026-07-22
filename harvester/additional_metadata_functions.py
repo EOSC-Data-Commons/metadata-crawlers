@@ -2,6 +2,7 @@ import httpx
 from typing import Optional
 import json
 import logging
+from typing import Any
 from oaipmh_scythe import Scythe
 from lxml import etree as ET
 
@@ -96,7 +97,7 @@ def fetch_additional_metadata_hal(record_id: str, base_url: str) -> Optional[str
         return None
 
 
-def fetch_additional_oai(record_id: str, base_url: str, metadata_prefix: str) -> Optional[str]:
+def fetch_additional_oai(record_id: str, base_url: str, metadata_prefix: str) -> Any | None:
     """
     Fetch additional metadata: OAI-PMH
 
