@@ -1,8 +1,7 @@
-import argparse, sys
+import argparse
 import logging
 from datetime import datetime, timezone
 
-from typing import Any
 from .additional_metadata_functions import close_dataverse_client
 from .harvester_oaipmh import run_harvester_oaipmh
 from harvester.harvester_finbif import run_harvester_finbif

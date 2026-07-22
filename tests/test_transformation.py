@@ -14,7 +14,7 @@ def load_xml(filename: str) -> str:
     return path.read_text(encoding = "utf-8")
 
 
-def normalize_xml(xml_string: str | None) -> Any | None:
+def normalize_xml(xml_string: str | None) -> str | None:
     """Used to compare XML outputs without formatting differences"""
     if xml_string is None:
         return None

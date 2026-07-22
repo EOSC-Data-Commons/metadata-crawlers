@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-def apply_xslt_transform(xml: str, transform: ET.XSLT) -> Any | None:
+def apply_xslt_transform(xml: str, transform: ET.XSLT) -> str | None:
     """
     Apply a precompiled XSLT transform to a XML string.
 

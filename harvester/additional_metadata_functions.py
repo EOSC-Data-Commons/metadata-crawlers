@@ -97,7 +97,7 @@ def fetch_additional_metadata_hal(record_id: str, base_url: str) -> Optional[str
         return None
 
 
-def fetch_additional_oai(record_id: str, base_url: str, metadata_prefix: str) -> Any | None:
+def fetch_additional_oai(record_id: str, base_url: str, metadata_prefix: str) -> Optional[str]:
     """
     Fetch additional metadata: OAI-PMH
 

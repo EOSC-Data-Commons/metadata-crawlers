@@ -72,7 +72,7 @@ async def shutdown_async_client() -> None:
         logger.error("Error closing async client: %s", e)
 
 
-def build_datacite_xml(record: dict[str, Any]) -> Any:
+def build_datacite_xml(record: dict[str, Any]) -> str:
     dataset = record["dataset"]
     additional = record["additional"]
     dataset_id = record["id"]
