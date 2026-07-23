@@ -19,4 +19,4 @@ jobs:
       - name: Run tests
         run: PYTHONPATH=. uv run pytest tests
       - name: run mypy
-        run: uv run mypy --config-file mypy.ini
+        run: uv run mypy --config-file pyproject.toml
