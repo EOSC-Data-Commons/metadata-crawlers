@@ -1,15 +1,13 @@
-FROM python:3.11-slim
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+
+COPY ./pyproject.toml ./uv.lock /app/
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libxml2 \
-    libxslt1.1 \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+ENV UV_LINK_MODE=copy
+RUN uv sync --frozen --no-dev
 
 COPY harvester ./harvester
+ENV PATH="/app/.venv/bin:$PATH"
 
 ENTRYPOINT ["python", "-m", "harvester"]
