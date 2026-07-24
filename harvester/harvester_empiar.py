@@ -132,7 +132,36 @@ def add_orcid(parent_el: ET.Element, orcid: str | None) -> None:
 
 
 
-def empiar_data_to_datacite(entry_id: str, record: Dict[str, Any]) -> tuple[str, str, str]:
+def extract_keywords_from_emdb_references(record: Dict[str, Any]) -> list[str]:
+    """
+    Extract useful descriptive keywords from linked EMDB entries.
+    """
+
+    keywords = set()
+
+    def add(value):
+        if value:
+            keywords.update(x.strip() for x in str(value).split(",") if x.strip())
+
+    # EMDB IDs from EMPIAR record
+    emdb_ids = [x.get("name") if isinstance(x, dict) else x for x in record.get("cross_references", [])]
+
+    for emdb_id in filter(None, emdb_ids):
+        try:
+            data = _EMPIAR_CLIENT.get(f"https://www.ebi.ac.uk/emdb/api/entry/{emdb_id}", timeout = 10).json()
+        except Exception:
+            continue
+
+        admin = data.get("admin", {})
+        add(admin.get("keywords"))
+        for s in data.get("structure_determination_list", {}).get("structure_determination", []):
+            add(s.get("method"))
+
+    return keywords
+
+
+
+def empiar_data_to_datacite(entry_id: str, record: Dict[str, Any], keywords: list[str]) -> tuple[str, str, str]:
     """
     Convert an EMPIAR entry record into a DataCite 4.6 XML record wrapped in
     an OAI-PMH <record> element.
@@ -156,12 +185,10 @@ def empiar_data_to_datacite(entry_id: str, record: Dict[str, Any]) -> tuple[str,
 
     # OAI-PMH RECORD ROOT
     oai_record = ET.Element(
-        "record",
-        {
-            "xmlns": "http://www.openarchives.org/OAI/2.0/",
-            "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
-        },
-    )
+        "record", {
+            "xmlns": "http://www.openarchives.org/OAI/2.0/", 
+            "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance"
+            })
 
     header = ET.SubElement(oai_record, "header", {"status": "deleted"} if obsolete_date else {})
     ET.SubElement(header, "identifier").text = f"EMPIAR-{entry_id}"
@@ -337,11 +364,10 @@ def empiar_data_to_datacite(entry_id: str, record: Dict[str, Any]) -> tuple[str,
         ET.SubElement(sizes_el, "size").text = dataset_size
 
     # SUBJECTS
-    categories = {img.get("category") for img in (meta.get("imagesets") or []) if img.get("category")}
-    if categories:
+    if keywords:
         subjects_el = ET.SubElement(resource, "subjects")
-        for cat in sorted(categories):
-            ET.SubElement(subjects_el, "subject").text = cat
+        for word in keywords:
+            ET.SubElement(subjects_el, "subject").text = word
 
     # FORMATS
     formats_set = {
@@ -427,7 +453,8 @@ def run_harvester_empiar(run_info: dict) -> bool:
         for page in projects:
             for empiar_key, record in page.items():
                 entry_id = empiar_key.removeprefix("EMPIAR-")
-                xml_out, datestamp = empiar_data_to_datacite(entry_id, record)
+                keywords = extract_keywords_from_emdb_references(record)
+                xml_out, datestamp = empiar_data_to_datacite(entry_id, record, keywords)
                 additional_file_metadata = empiar_additional_file_metadata(entry_id)
 
                 event_payload = {
