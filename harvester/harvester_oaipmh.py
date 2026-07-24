@@ -10,7 +10,7 @@ from oaipmh_scythe.models import Record
 
 from .additional_metadata_functions import fetch_dataverse_json, fetch_additional_oai, fetch_additional_metadata_hal, \
     fetch_additional_metadata_zenodo
-from .db_api_functions import send_harvest_event
+from .db_api_functions import send_harvest_event, HarvestRunCreateResponse
 from .zenodo_functions import resolve_zenodo_dois
 
 logger = logging.getLogger(__name__)
@@ -223,22 +223,22 @@ def fetch_records_by_id(client: Scythe, record_ids: set[str], metadata_prefix: s
 
 
 
-def fetch_records_by_sets(client: Scythe, sets: Iterable[str | None], from_: str | None,
-                          from_date: str | None, until_: str | None, metadata_prefix: str) -> Iterator[OAIResponse | Record]:
+def fetch_records_by_sets(client: Scythe, sets: list[str] | None, from_: str | None,
+                          from_date: datetime | None, until_: str | None, metadata_prefix: str) -> Iterator[OAIResponse | Record]:
     """
     Yield OAI-PMH records across all configured sets, either incrementally (from_ to until_) or as a full harvest.
 
     :param client: an active Scythe OAI-PMH client used to list records
-    :param sets: iterable of OAI-PMH set names to harvest
+    :param sets: list of OAI-PMH set names to harvest
     :param from_: lower bound datestamp
     :param from_date: original, unformatted "from" date used only for logging
     :param until_: upper bound datestamp
     :param metadata_prefix: OAI-PMH metadata prefix to request (e.g. "oai_dc", "datacite")
     :return: generator yielding record objects across all given sets
     """
-    sets = sets or [None]
+    _sets: list[str] | list[None] = sets or [None]
 
-    for set_name in sets:
+    for set_name in _sets:
         if from_:
             logger.info("Incremental harvest since %s", from_date)
             records = client.list_records(
@@ -307,11 +307,11 @@ def run_harvest_loop(record_iter: Iterator[OAIResponse | Record], need_timeout: 
 
 
 
-def run_harvester_oaipmh(run_info: dict[str, Any]) -> bool:
+def run_harvester_oaipmh(run_info: HarvestRunCreateResponse) -> bool:
     """
     Run an OAI-PMH harvest.
 
-    :param run_info (dict): info about the harvest run
+    :param run_info: validated harvest run info from the warehouse API
     :return bool: True if harvest succeeded, False otherwise
     """
     record_count = 0
@@ -319,63 +319,24 @@ def run_harvester_oaipmh(run_info: dict[str, Any]) -> bool:
     failed_events = 0
 
     try:
-        # extract run info and harvest params
-        harvest_run_id = run_info.get("id")
-        if harvest_run_id is None:
-            raise ValueError("Missing harvest run ID")
+        config = run_info.endpoint_config
+        from_ = run_info.from_date.strftime('%Y-%m-%dT%H:%M:%SZ') if run_info.from_date else None
+        until_ = run_info.until_date.strftime('%Y-%m-%dT%H:%M:%SZ')
 
-        # extract dates
-        from_date = run_info.get("from_date")
-        from_ = datetime.strptime(from_date, '%Y-%m-%dT%H:%M:%S.%f%z').strftime('%Y-%m-%dT%H:%M:%SZ') if from_date else None
-        until_date = run_info.get("until_date")
-        if until_date is None:
-            raise ValueError("Missing until date")
-        until_ = datetime.strptime(until_date, '%Y-%m-%dT%H:%M:%S.%f%z').strftime('%Y-%m-%dT%H:%M:%SZ')
+        need_timeout = config.name in ["ALBA", "Riga Stradins University", "CLARIN-IV", "Zenodo"]
 
-        config = run_info.get("endpoint_config")
-        if config is None:
-            raise ValueError("Missing config")
-        
-        # extract parameters from config
-        harvest_url = config.get("harvest_url")
-        if harvest_url is None:
-            raise ValueError("Missing harvest url")
-
-        harvest_params = config.get("harvest_params")
-        if harvest_params is None:
-            raise ValueError("Missing harvest parameters")
-
-        code = config.get("code")
-        if code is None:
-            raise ValueError("Missing code of repository")
-
-        # extract additional parameters from harvest_params
-        metadata_prefix = harvest_params.get("metadata_prefix", "oai_dc")
-        sets = harvest_params.get("set")
-
-        # if master_set_indentifiers is defined then we do harvest by individual IDs
-        individual_ids = run_info.get("master_set_identifiers")
-
-        # here we define for which repositories we need to add timeout in order get back all the records from them
-        repository_name = config.get("name")
-        if repository_name is None:
-            raise ValueError("Missing name of repository")
-    
-        need_timeout = False
-        if repository_name in ["ALBA", "Riga Stradins University", "CLARIN-IV", "Zenodo"]:
-            need_timeout = True
-
-        # harvesting
-        with Scythe(harvest_url, timeout = 180, max_retries = 3, default_retry_after = 60) as client:
-
-            if individual_ids: # currently only used for HAL-Zenodo
-                resolved_ids = resolve_zenodo_dois(individual_ids)
-                record_iter = fetch_records_by_id(client, resolved_ids, metadata_prefix, repository_name)
+        with Scythe(config.harvest_url, timeout=180, max_retries=3, default_retry_after=60) as client:
+            if run_info.master_set_identifiers:
+                resolved_ids = resolve_zenodo_dois(run_info.master_set_identifiers)
+                record_iter = fetch_records_by_id(client, resolved_ids, config.harvest_params.metadata_prefix, config.name)
             else:
-                record_iter = fetch_records_by_sets(client, sets, from_, from_date, until_, metadata_prefix)
+                record_iter = fetch_records_by_sets(
+                    client, config.harvest_params.set, from_, run_info.from_date, until_, config.harvest_params.metadata_prefix
+                )
 
             record_count, harvest_events, failed_events = run_harvest_loop(
-                record_iter, need_timeout, config, metadata_prefix, harvest_url, code, harvest_run_id, repository_name
+                record_iter, need_timeout, config.model_dump(), config.harvest_params.metadata_prefix,
+                config.harvest_url, config.code, run_info.id, config.name
             )
 
         logger.info(

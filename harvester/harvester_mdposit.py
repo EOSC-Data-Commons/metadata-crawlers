@@ -1,6 +1,6 @@
 import logging, os, httpx, xml.etree.ElementTree as ET, time, mimetypes, json
 from datetime import datetime
-from .db_api_functions import send_harvest_event
+from .db_api_functions import send_harvest_event, HarvestRunCreateResponse
 from xml.dom import minidom
 from typing import Any, cast
 
@@ -358,7 +358,7 @@ def mdposit_data_to_datacite(project: dict[str, Any]) -> tuple[str, str, str]:
 
 
 
-def run_harvester_mdposit(run_info: dict[str, Any]) -> bool:
+def run_harvester_mdposit(run_info: HarvestRunCreateResponse) -> bool:
     """
     Depending on the supplied configuration, performs either a full
     harvest or an incremental harvest, converts each project into
@@ -385,11 +385,9 @@ def run_harvester_mdposit(run_info: dict[str, Any]) -> bool:
     failed_events = 0
     try:
 
-        config = run_info.get("endpoint_config")
-        if config is None:
-            raise ValueError("config is missing")
-        harvest_url = config.get("harvest_url")
-        from_date: str | None = run_info.get("from_date")
+        config = run_info.endpoint_config
+        harvest_url = config.harvest_url
+        from_date: str | None = run_info.from_date.isoformat() if run_info.from_date else None
         headers = {"Accept": "application/json"}
 
         if not from_date:
@@ -407,7 +405,7 @@ def run_harvester_mdposit(run_info: dict[str, Any]) -> bool:
                 "additional_metadata": additional_file_metadata,
                 "harvest_url": harvest_url,
                 "repo_code": "MDDB",
-                "harvest_run_id": run_info.get("id"),
+                "harvest_run_id": run_info.id,
                 "is_deleted": False
             }
 

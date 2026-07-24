@@ -1,6 +1,9 @@
 import httpx
 import logging
 from typing import Optional, Any
+from datetime import datetime
+from pydantic import ValidationError, BaseModel
+
 from harvester.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -14,8 +17,32 @@ HARVEST_EVENT_URL = f"{base_url}/harvest_event"
 # shared HTTP client for warehouse API
 _WAREHOUSE_CLIENT = httpx.Client(timeout=timeout)
 
+class AdditionalMetadataParams(BaseModel):
+    format: str
+    endpoint: str
+    protocol: str
 
-def start_harvest_run(harvest_url: str) -> Optional[dict[str, Any]]:
+class HarvestParams(BaseModel):
+    metadata_prefix: str
+    set: Optional[list[str]]
+    additional_metadata_params: Optional[AdditionalMetadataParams]
+
+class EndpointConfig(BaseModel):
+    name: str
+    harvest_url: str
+    harvest_params: HarvestParams
+    code: str
+    protocol: str
+
+class HarvestRunCreateResponse(BaseModel):
+    id: str
+    from_date: datetime | None
+    until_date: datetime
+    endpoint_config: EndpointConfig
+    master_set_identifiers: list[str] | None = None
+
+
+def start_harvest_run(harvest_url: str) -> Optional[HarvestRunCreateResponse]:
     """
     POST /harvest_run to create a new harvest run. 
     
@@ -28,9 +55,13 @@ def start_harvest_run(harvest_url: str) -> Optional[dict[str, Any]]:
         response.raise_for_status()
         run_info: dict[str, Any] = response.json()
         logger.info("Started harvest run id=%s.", run_info.get("id"))
-        return run_info
+
+        return HarvestRunCreateResponse.model_validate(run_info)
     except httpx.RequestError as e:
         logger.error("Failed to start harvest run for %s: %s", harvest_url, e)
+        return None
+    except ValidationError as e:
+        logger.error("Invalid run_info received: %s", e)
         return None
 
 def get_open_run_id(harvest_url: str) -> Optional[str]:

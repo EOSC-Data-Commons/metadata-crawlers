@@ -52,12 +52,10 @@ def main() -> int:
                 logger.error("No open run found. Quitting harvester.")
                 return 1
 
-        harvest_run_id = run_info["id"]
-        config = run_info.get("endpoint_config")
-        if not config:
-            raise ValueError("Missing endpoint_config in API response")
+        harvest_run_id = run_info.id
+        config = run_info.endpoint_config
     
-        harvesting_protocol = config.get("protocol")
+        harvesting_protocol = config.protocol
 
         if harvesting_protocol == "OAI-PMH":
             harvest_success = run_harvester_oaipmh(run_info)
