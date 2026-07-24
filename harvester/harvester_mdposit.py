@@ -68,7 +68,7 @@ def fetch_projects_summary(base_api_url: str, headers: dict[str, str]) -> dict[s
 
 
 
-def fetch_all_projects_data(base_api_url: str, headers: dict[str, str]) -> list:
+def fetch_all_projects_data(base_api_url: str, headers: dict[str, str]) -> list[dict[str, Any]]:
     """
     Retrieve all projects from the MDposit API.
 
@@ -90,7 +90,7 @@ def fetch_all_projects_data(base_api_url: str, headers: dict[str, str]) -> list:
     total = project_summary["projectsCount"]
     print(f"Total projects: {total}")
 
-    projects : list[dict] = []
+    projects : list[dict[str, Any]] = []
     page = 1
 
     while len(projects) < total:
@@ -111,7 +111,7 @@ def fetch_all_projects_data(base_api_url: str, headers: dict[str, str]) -> list:
 
 
 
-def fetch_incremental_projects_data(base_api_url: str, from_date: str, headers: dict[str, str]) -> list:
+def fetch_incremental_projects_data(base_api_url: str, from_date: str, headers: dict[str, str]) -> list[dict[str, Any]]:
     """
     Retrieve projects updated after a specified date.
 
@@ -150,7 +150,7 @@ def fetch_incremental_projects_data(base_api_url: str, from_date: str, headers: 
     number_of_filtered_objects = data["filteredCount"]
 
     # fetching all filtered projects 
-    projects : list[dict] = []
+    projects : list[dict[str, Any]] = []
     page = 1
     params_filtered : dict[str, str | int] = {"limit": 100, "page": page, "query": json.dumps(query)}
     while len(projects) < number_of_filtered_objects:
@@ -170,7 +170,7 @@ def fetch_incremental_projects_data(base_api_url: str, from_date: str, headers: 
 
 
 
-def build_description(project: dict) -> str:
+def build_description(project: dict[str, Any]) -> str:
     """
     Generate a human-readable dataset description from project metadata.
 
@@ -218,7 +218,7 @@ def build_description(project: dict) -> str:
 
 
 
-def mdposit_data_to_datacite(project: dict) -> tuple[str, str, str]:
+def mdposit_data_to_datacite(project: dict[str, Any]) -> tuple[str, str, str]:
     """
     Convert an MDposit project record into a DataCite XML record.
 
@@ -358,7 +358,7 @@ def mdposit_data_to_datacite(project: dict) -> tuple[str, str, str]:
 
 
 
-def run_harvester_mdposit(run_info: dict) -> bool:
+def run_harvester_mdposit(run_info: dict[str, Any]) -> bool:
     """
     Depending on the supplied configuration, performs either a full
     harvest or an incremental harvest, converts each project into
@@ -389,7 +389,7 @@ def run_harvester_mdposit(run_info: dict) -> bool:
         if config is None:
             raise ValueError("config is missing")
         harvest_url = config.get("harvest_url")
-        from_date = run_info.get("from_date")
+        from_date: str | None = run_info.get("from_date")
         headers = {"Accept": "application/json"}
 
         if not from_date:
