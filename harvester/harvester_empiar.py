@@ -49,7 +49,7 @@ def search_all() -> Iterator[Dict[str, Any]]:
     page = 1
     total_records = 0
     query = "*"
-    while True:
+    while total_records < 100:
         payload = search_page(page, query)
 
         if not payload:
@@ -278,13 +278,10 @@ def empiar_data_to_datacite(entry_id: str, record: Dict[str, Any]) -> tuple[str,
     # RELATED IDENTIFIERS
     related_items = []
 
-    if not doi_value:
-        related_items.append(("URL", "IsIdentifiedBy", "https://www.ebi.ac.uk/empiar/EMPIAR-{entry_id}/".format(entry_id = entry_id)))
-
     for xref in meta.get("cross_references") or []:
         emd_id = xref.get("name") if isinstance(xref, dict) else xref
         if emd_id:
-            related_items.append(("URL", "IsDerivedFrom", f"https://www.ebi.ac.uk/emdb/{emd_id}"))
+            related_items.append(("URL", "IsSourceOf", f"https://www.ebi.ac.uk/emdb/{emd_id}"))
 
     for cit in meta.get("citation") or []:
         if cit.get("doi"):
@@ -292,7 +289,7 @@ def empiar_data_to_datacite(entry_id: str, record: Dict[str, Any]) -> tuple[str,
             cit_doi_value = cit_doi.split("doi:")[-1] if cit_doi.lower().startswith("doi:") else cit_doi
             related_items.append(("DOI", "IsDocumentedBy", cit_doi_value))
         if cit.get("pubmedid"):
-            related_items.append(("PMID", "IsDocumentedBy", cit["pubmedid"]))
+            related_items.append(("PMID", "IsDocumentedBy", f"https://pubmed.ncbi.nlm.nih.gov/{cit["pubmedid"]}/"))
 
     if related_items:
         related = ET.SubElement(resource, "relatedIdentifiers")
