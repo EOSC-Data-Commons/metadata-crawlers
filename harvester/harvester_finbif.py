@@ -233,8 +233,6 @@ async def harvest_finbif(run_info: HarvestRunCreateResponse) -> bool:
 
     harvest_run_id = run_info.id
     from_date = run_info.from_date
-    #logger.info('from_date1' + from_date.isoformat())
-    #from_ = datetime.fromisoformat(from_date.isoformat().replace("Z", "+00:00")) if from_date else None
 
     logger.info(run_info)
 
