@@ -28,8 +28,10 @@ The package consists of the following components:
 - settings.py - handles settings for different environments
 
 ## Requirements
-- [Python](https://www.python.org/downloads/) >= 3.10
-- Dependencies listed in requirements.txt 
+- [Python](https://www.python.org/downloads/) >= 3.12
+- Install `uv`, see [docs](https://docs.astral.sh/uv/getting-started/installation/)
+- Dependencies are listed in `pyproject.toml`, 
+  install with `uv sync --locked --all-extras --group dev` for local development
 
 ## Environment configuration
 The harvester uses Pydantic settings for all configuration.
@@ -57,7 +59,7 @@ To run the harvester directly on your machine:
 1. Ensure ```.env``` exists in the project root and the required values have been filled
 2. Run the following:
 ```
-python -m harvester {repository URL}
+uv run python -m harvester {repository URL}
 ```
 Replace ```{repository URL}``` with the actual base URL of the repository you want to harvest.
 
