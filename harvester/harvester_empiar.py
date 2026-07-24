@@ -1,8 +1,7 @@
-import logging, os, httpx, xml.etree.ElementTree as ET, time, mimetypes, json
-from datetime import datetime
+import logging, os, httpx, xml.etree.ElementTree as ET, time, json
 from .db_api_functions import send_harvest_event
 from xml.dom import minidom
-from typing import Any, Dict, Iterator, Optional
+from typing import Any, Dict, Iterator
 
 _EMPIAR_CLIENT = httpx.Client(
     timeout = httpx.Timeout(120),
@@ -49,7 +48,7 @@ def search_all() -> Iterator[Dict[str, Any]]:
     page = 1
     total_records = 0
     query = "*"
-    while True:
+    while total_records < 5:
         payload = search_page(page, query)
 
         if not payload:
@@ -92,7 +91,7 @@ def search_incremental(from_date: str, until_date: str) -> Iterator[Dict[str, An
 
 
 
-def empiar_additional_file_metadata(entry_id:  str) -> str:
+def empiar_additional_file_metadata(entry_id:  str) -> list[dict]:
     """
     Fetch the image-set metadata for a single EMPIAR entry
 
@@ -104,6 +103,24 @@ def empiar_additional_file_metadata(entry_id:  str) -> str:
     response.raise_for_status()
     payload = response.json()
     return payload[f"EMPIAR-{entry_id}"]["imagesets"]
+
+
+
+def add_file_sizes(empiar_id: str, additional_file_metadata: list[dict]) -> list[dict]:
+    """Adds the byte size of each additional file collection to its metadata.
+
+    :param empiar_id: The EMPIAR accession identifier.
+    :param additional_file_metadata: A list of metadata dictionaries describing the additional file collections.
+    :return: The input list of metadata dictionaries, with each dictionary containing the added byte_size field.
+    """
+    empiar_entry_endpoint = f"https://www.ebi.ac.uk/empiar/{empiar_id}/dirStruct%3Dfull&list%3D1/"
+    for index, metadata in enumerate(additional_file_metadata):
+        response = _EMPIAR_CLIENT.get(f"{empiar_entry_endpoint}{index}/")
+        response.raise_for_status()
+        payload = response.json()
+        metadata["byte_size"] = payload[0]["size"]
+    
+    return additional_file_metadata
 
 
 
@@ -456,12 +473,13 @@ def run_harvester_empiar(run_info: dict) -> bool:
                 keywords = extract_keywords_from_emdb_references(record)
                 xml_out, datestamp = empiar_data_to_datacite(entry_id, record, keywords)
                 additional_file_metadata = empiar_additional_file_metadata(entry_id)
+                additional_file_metadata_updated = add_file_sizes(empiar_key, additional_file_metadata)
 
                 event_payload = {
                     "record_identifier": empiar_key,
                     "datestamp": datestamp,
                     "raw_metadata": xml_out,
-                    "additional_metadata": json.dumps(additional_file_metadata),
+                    "additional_metadata": json.dumps(additional_file_metadata_updated),
                     "harvest_url": harvest_url,
                     "repo_code": "MDDB",
                     "harvest_run_id": run_info.get("id"),
