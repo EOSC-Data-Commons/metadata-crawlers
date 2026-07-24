@@ -49,7 +49,7 @@ def search_all() -> Iterator[Dict[str, Any]]:
     page = 1
     total_records = 0
     query = "*"
-    while total_records < 100:
+    while True:
         payload = search_page(page, query)
 
         if not payload:
@@ -186,36 +186,56 @@ def empiar_data_to_datacite(entry_id: str, record: Dict[str, Any]) -> tuple[str,
     # IDENTIFIER (mandatory)
     doi = meta.get("entry_doi") or ""
     doi_value = doi.split("doi:")[-1] if doi.lower().startswith("doi:") else doi
-    if doi_value:
-        ET.SubElement(resource, "identifier", identifierType="DOI").text = doi_value
 
-    # CREATORS (mandatory) - authors, falling back to citation authors,
-    # falling back to the principal investigator(s)
-    author_entries = [
-        (a["author"]["name"], a["author"].get("author_orcid"))
-        for a in (meta.get("authors") or [])
-        if a.get("author", {}).get("name")
-    ]
-    if not author_entries:
-        for cit in meta.get("citation") or []:
-            author_entries = [
-                (a["name"], a.get("author_orcid")) for a in (cit.get("authors") or []) if a.get("name")
-            ]
-            if author_entries:
-                break
+    if doi_value:
+        ET.SubElement(resource, "identifier", identifierType = "DOI").text = doi_value
+    else:
+        ET.SubElement(resource, "identifier", identifierType = "URL").text = f"https://www.ebi.ac.uk/empiar/EMPIAR-{entry_id}/"
+
+
+    # CREATORS (mandatory)
+    # Priority:
+    # 1. EMPIAR authors
+    # 2. Principal investigators
+    # 3. Citation authors
+
+    author_entries = []
+
+    for a in (meta.get("authors") or []):
+        author = a.get("author", {})
+        if author.get("name"):
+            author_entries.append((author["name"], author.get("author_orcid"), author.get("organization")))
+
     if not author_entries:
         author_entries = [
-            (f"{pi.get('last_name', '')}, {pi.get('first_name', '')}".strip(", "), pi.get("author_orcid"))
+            (
+                f"{pi.get('last_name', '')}, {pi.get('first_name', '')}".strip(", "),
+                pi.get("author_orcid"),
+                pi.get("organization")
+            )
             for pi in (meta.get("principal_investigator") or [])
             if pi.get("last_name") or pi.get("first_name")
         ]
 
+    if not author_entries:
+        for cit in meta.get("citation") or []:
+            author_entries = [
+                (a.get("name"), a.get("author_orcid"), None)
+                for a in (cit.get("authors") or [])
+                if a.get("name")
+            ]
+            if author_entries:
+                break
+
     if author_entries:
         creators = ET.SubElement(resource, "creators")
-        for name, orcid in author_entries:
+        for name, orcid, affiliation in author_entries:
             creator = ET.SubElement(creators, "creator")
-            ET.SubElement(creator, "creatorName", nameType="Personal").text = name
+            ET.SubElement(creator, "creatorName", nameType = "Personal").text = name
             add_orcid(creator, orcid)
+            if affiliation:
+                ET.SubElement(creator, "affiliation").text = affiliation
+
 
     # TITLES (mandatory)
     title = meta.get("title")
@@ -223,7 +243,7 @@ def empiar_data_to_datacite(entry_id: str, record: Dict[str, Any]) -> tuple[str,
     ET.SubElement(titles, "title").text = title
 
     # PUBLISHER (mandatory)
-    ET.SubElement(resource, "publisher").text = "Electron Microscopy Public Image Archive (EMPIAR)"
+    ET.SubElement(resource, "publisher").text = ("EMBL-European Bioinformatics Institute")
 
     # PUBLICATION YEAR (mandatory)
     pub_year_source = release_date or creation_date
@@ -231,9 +251,7 @@ def empiar_data_to_datacite(entry_id: str, record: Dict[str, Any]) -> tuple[str,
         ET.SubElement(resource, "publicationYear").text = pub_year_source[:4]
 
     # RESOURCE TYPE (mandatory)
-    resource_type_text = meta.get("experiment_type")
-    if resource_type_text:
-        ET.SubElement(resource, "resourceType", resourceTypeGeneral="Dataset").text = resource_type_text
+    ET.SubElement(resource, "resourceType", resourceTypeGeneral = "Dataset").text = "Electron microscopy dataset"
 
     # LANGUAGE
     languages = {c.get("language") for c in (meta.get("citation") or []) if c.get("language")}
@@ -245,22 +263,27 @@ def empiar_data_to_datacite(entry_id: str, record: Dict[str, Any]) -> tuple[str,
     # CONTRIBUTORS
     pi_list = meta.get("principal_investigator") or []
     corr = (meta.get("corresponding_author") or {}).get("author")
-    seen_names = set()
-    contact_people = []
-    for person in list(pi_list) + ([corr] if corr else []):
-        if not person:
-            continue
-        name = f"{person.get('last_name', '')}, {person.get('first_name', '')}".strip(", ")
-        if not name or name in seen_names:
-            continue
-        seen_names.add(name)
-        contact_people.append((name, person))
 
-    if contact_people:
+    contributors_data = []
+    seen_names = set()
+    for person in pi_list:
+        name = f"{person.get('last_name', '')}, {person.get('first_name', '')}".strip(", ")
+        if name and name not in seen_names:
+            seen_names.add(name)
+            contributors_data.append((name, person, "ProjectLeader"))
+
+    if corr:
+        name = f"{corr.get('last_name', '')}, {corr.get('first_name', '')}".strip(", ")
+        if name and name not in seen_names:
+            contributors_data.append((name, corr, "ContactPerson"))
+
+
+    if contributors_data:
         contributors = ET.SubElement(resource, "contributors")
-        for name, person in contact_people:
-            contributor = ET.SubElement(contributors, "contributor", contributorType="ContactPerson")
-            ET.SubElement(contributor, "contributorName", nameType="Personal").text = name
+
+        for name, person, role in contributors_data:
+            contributor = ET.SubElement(contributors, "contributor", contributorType = role)
+            ET.SubElement(contributor, "contributorName",nameType = "Personal").text = name
             add_orcid(contributor, person.get("author_orcid"))
             if person.get("organization"):
                 ET.SubElement(contributor, "affiliation").text = person["organization"]
@@ -269,34 +292,43 @@ def empiar_data_to_datacite(entry_id: str, record: Dict[str, Any]) -> tuple[str,
     if creation_date or release_date or update_date:
         dates = ET.SubElement(resource, "dates")
         if creation_date:
-            ET.SubElement(dates, "date", dateType="Submitted").text = creation_date[:10]
+            ET.SubElement(dates, "date", dateType = "Submitted").text = creation_date[:10]
         if release_date:
-            ET.SubElement(dates, "date", dateType="Available").text = release_date[:10]
+            ET.SubElement(dates, "date", dateType = "Available").text = release_date[:10]
         if update_date:
-            ET.SubElement(dates, "date", dateType="Updated").text = update_date[:10]
+            ET.SubElement(dates, "date", dateType = "Updated").text = update_date[:10]
 
     # RELATED IDENTIFIERS
     related_items = []
 
+    # EMDB maps are derived from EMPIAR data
     for xref in meta.get("cross_references") or []:
         emd_id = xref.get("name") if isinstance(xref, dict) else xref
+
         if emd_id:
             related_items.append(("URL", "IsSourceOf", f"https://www.ebi.ac.uk/emdb/{emd_id}"))
 
+    # Publications documenting the dataset
     for cit in meta.get("citation") or []:
+
         if cit.get("doi"):
             cit_doi = cit["doi"]
-            cit_doi_value = cit_doi.split("doi:")[-1] if cit_doi.lower().startswith("doi:") else cit_doi
+            cit_doi_value = (
+                cit_doi.split("doi:")[-1]
+                if cit_doi.lower().startswith("doi:")
+                else cit_doi
+            )
+
             related_items.append(("DOI", "IsDocumentedBy", cit_doi_value))
+
         if cit.get("pubmedid"):
-            related_items.append(("PMID", "IsDocumentedBy", f"https://pubmed.ncbi.nlm.nih.gov/{cit["pubmedid"]}/"))
+            related_items.append(("URL", "IsDocumentedBy", f"https://pubmed.ncbi.nlm.nih.gov/{cit['pubmedid']}/"))
 
     if related_items:
         related = ET.SubElement(resource, "relatedIdentifiers")
+
         for id_type, relation, text in related_items:
-            ET.SubElement(
-                related, "relatedIdentifier", relatedIdentifierType = id_type, relationType = relation
-            ).text = text
+            ET.SubElement(related, "relatedIdentifier", relatedIdentifierType = id_type, relationType = relation).text = text
 
     # SIZES
     dataset_size = meta.get("dataset_size")
@@ -356,14 +388,6 @@ def empiar_data_to_datacite(entry_id: str, record: Dict[str, Any]) -> tuple[str,
             ET.SubElement(funding_ref, "funderName").text = grant["funding_body"]
             if grant.get("code"):
                 ET.SubElement(funding_ref, "awardNumber").text = grant["code"]
-
-    # VERSION
-    history = meta.get("version_history") or []
-    if history:
-        latest = history[-1]
-        version_value = latest.get("version") if isinstance(latest, dict) else str(latest)
-        if version_value:
-            ET.SubElement(resource, "version").text = version_value
 
     xml_str = ET.tostring(oai_record, encoding = "unicode")
     xml_pretty = minidom.parseString(xml_str).toprettyxml(indent = "  ")
