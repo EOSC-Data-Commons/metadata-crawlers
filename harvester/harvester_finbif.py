@@ -18,6 +18,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Base URL and config for the FinBIF API
 API_BASE = "https://api.gbif.org"
 API_ADDITIONAL = "https://tun.fi"
+LAJI_FI_API = "https://laji.fi/api/warehouse/query/unit/aggregate"
 KEY = "b1304814-56cc-434e-8d40-2b24fa21526f"
 
 OAI_NS = "http://www.openarchives.org/OAI/2.0/"
@@ -72,10 +73,37 @@ async def shutdown_async_client() -> None:
         logger.error("Error closing async client: %s", e)
 
 
-def build_datacite_xml(record: dict[str, Any]) -> str:
+async def fetch_aggregate_taxon_data(collection_id: str) -> list[dict[str, Any]]:
+    """
+    Fetch aggregate taxon data from laji.fi for enrichment.
+    Returns aggregate results with taxon names and counts.
+    """
+    params: dict[str, str | int] = {
+        "collectionId": collection_id,
+        "aggregateBy": "unit.linkings.taxon.scientificName",
+        "pageSize": 10,
+        "onlyCount": "false",
+    } # Returns top 10 scientific names based on occurrence counts in the collection
+    
+    try:
+        response = await _ASYNC_FINBIF_CLIENT.get(LAJI_FI_API, params=params)
+        response.raise_for_status()
+        data = response.json()
+        results: list[dict[str, Any]] = data.get("results", [])
+        logger.debug("Fetched aggregate data for %s: %d taxa", collection_id, len(results))
+        return results
+    except Exception as e:
+        logger.warning("Failed to fetch aggregate data for %s: %s", collection_id, e)
+        return []
+
+
+def build_datacite_xml(record: dict[str, Any], aggregate_data: list[dict[str, Any]] | None = None) -> str:
     dataset = record["dataset"]
     additional = record["additional"]
     dataset_id = record["id"]
+    
+    if aggregate_data is None:
+        aggregate_data = []
 
     # OAI-PMH wrapper
     root = etree.Element(
@@ -135,6 +163,16 @@ def build_datacite_xml(record: dict[str, Any]) -> str:
         etree.SubElement(subjects_el, "subject",
                          attrib={f"{{{XML_NS}}}lang": lang},
                          ).text = text
+
+    # taxon data from finbif API (aggregateBy)
+    for item in aggregate_data:
+        agg = item.get("aggregateBy", {})
+        sci_name = agg.get("unit.linkings.taxon.scientificName")
+        
+        # Add scientific name (Latin)
+        if sci_name:
+            sci_el = etree.SubElement(subjects_el, "subject")
+            sci_el.text = sci_name
 
     # contributors
     if dataset["contacts"]:
@@ -279,15 +317,15 @@ async def harvest_finbif(run_info: dict[str, Any]) -> bool:
         logger.error(f"Unexpected error while harvesting datasets: {e}")
         return False
 
-    finally:
-        shutdown_client()
-        await shutdown_async_client()
-
     for record in combined:
         record_counter += 1
         record_identifier = record["dataset"]["doi"]
+        dataset_id = record["id"]
 
-        datacite_xml = build_datacite_xml(record)
+        # Fetch aggregate taxon data for enrichment
+        aggregate_data = await fetch_aggregate_taxon_data(dataset_id.replace(f"{API_ADDITIONAL}/", ""))
+
+        datacite_xml = build_datacite_xml(record, aggregate_data)
 
         try:
             event_payload = {
@@ -316,6 +354,9 @@ async def harvest_finbif(run_info: dict[str, Any]) -> bool:
         harvest_events,
         failed_events
     )
+
+    shutdown_client()
+    await shutdown_async_client()
 
     return success
 
