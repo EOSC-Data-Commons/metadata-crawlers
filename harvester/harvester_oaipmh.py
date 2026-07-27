@@ -3,14 +3,14 @@ import logging, os, time
 from datetime import datetime
 from lxml import etree as ET
 from oaipmh_scythe import Scythe, OAIResponse
-from collections.abc import Iterable, Iterator
-from typing import Any
+from collections.abc import Iterator
+from typing import Optional
 
 from oaipmh_scythe.models import Record
 
 from .additional_metadata_functions import fetch_dataverse_json, fetch_additional_oai, fetch_additional_metadata_hal, \
     fetch_additional_metadata_zenodo
-from .db_api_functions import send_harvest_event, HarvestRunCreateResponse
+from .db_api_functions import send_harvest_event, HarvestRunCreateResponse, AdditionalMetadataParams
 from .zenodo_functions import resolve_zenodo_dois
 
 logger = logging.getLogger(__name__)
@@ -123,14 +123,14 @@ def transformation_and_additional_metadata(raw_metadata: str | None,
     return (raw_metadata, additional_metadata)
 
 
-def process_record(record: Record, config: dict[str, Any], metadata_prefix: str, harvest_url: str,
+def process_record(record: Record, additional_harvest_params: Optional[AdditionalMetadataParams], metadata_prefix: str, harvest_url: str,
                     code: str, harvest_run_id: str, repository_name: str) -> str:
     """
     Process a single OAI-PMH record: extract and transform its metadata,
     then send the resulting event to the warehouse.
 
     :param record: OAI-PMH record object (as returned by Scythe)
-    :param config: harvest endpoint configuration dict
+    :param additional_harvest_params: additional harvest parameters for additional metadata harvesting
     :param metadata_prefix: OAI-PMH metadata prefix the record was harvested with
                              (e.g. "oai_dc", "datacite")
     :param harvest_url: base URL of the OAI-PMH endpoint the record came from
@@ -159,13 +159,10 @@ def process_record(record: Record, config: dict[str, Any], metadata_prefix: str,
         additional_protocol = None
         additional_endpoint = ""
         additional_format = ""
-        harvest_params = config.get("harvest_params")
-        if harvest_params:
-            additional = harvest_params.get("additional_metadata_params")
-            if additional:
-                additional_protocol = additional.get("protocol")
-                additional_endpoint = additional["endpoint"]
-                additional_format = additional["format"]
+        if additional_harvest_params:
+            additional_protocol = additional_harvest_params.protocol
+            additional_endpoint = additional_harvest_params.endpoint
+            additional_format = additional_harvest_params.format
 
         # Identifier for additional metadata without namespace (everything after last ":")
         identifier_for_additional_metadata = identifier.split(":")[-1]
@@ -258,7 +255,7 @@ def fetch_records_by_sets(client: Scythe, sets: list[str] | None, from_: str | N
 
 
 
-def run_harvest_loop(record_iter: Iterator[OAIResponse | Record], need_timeout: bool, config: dict[str, Any], metadata_prefix: str,
+def run_harvest_loop(record_iter: Iterator[OAIResponse | Record], need_timeout: bool, additional_harvest_params: Optional[AdditionalMetadataParams], metadata_prefix: str,
                      harvest_url: str, code: str, harvest_run_id: str, repository_name: str
                      ) -> tuple[int, int, int]:
     """
@@ -267,7 +264,7 @@ def run_harvest_loop(record_iter: Iterator[OAIResponse | Record], need_timeout: 
     :param record_iter: iterable of record objects to process
     :param need_timeout: if True, sleep 2 seconds after every 10th record
                           to throttle requests to rate-limited repositories
-    :param config: harvest endpoint configuration dict
+    :param additional_harvest_params: additional harvest parameters for additional metadata harvesting
     :param metadata_prefix: OAI-PMH metadata prefix used for this harvest
     :param harvest_url: base URL of the OAI-PMH endpoint
     :param code: repository code
@@ -294,7 +291,7 @@ def run_harvest_loop(record_iter: Iterator[OAIResponse | Record], need_timeout: 
         if need_timeout and record_count % 10 == 0:
             time.sleep(2.1)
 
-        status = process_record(record, config, metadata_prefix, harvest_url, code, harvest_run_id, repository_name)
+        status = process_record(record, additional_harvest_params, metadata_prefix, harvest_url, code, harvest_run_id, repository_name)
 
         if status == "sent":
             harvest_events += 1
@@ -335,7 +332,7 @@ def run_harvester_oaipmh(run_info: HarvestRunCreateResponse) -> bool:
                 )
 
             record_count, harvest_events, failed_events = run_harvest_loop(
-                record_iter, need_timeout, config.model_dump(), config.harvest_params.metadata_prefix,
+                record_iter, need_timeout, config.harvest_params.additional_metadata_params, config.harvest_params.metadata_prefix,
                 config.harvest_url, config.code, run_info.id, config.name
             )
 
