@@ -6,7 +6,7 @@ import json
 import os
 from datetime import datetime, timezone
 from lxml import etree
-from harvester.db_api_functions import send_harvest_event
+from harvester.db_api_functions import send_harvest_event, HarvestRunCreateResponse
 import re
 from typing import cast, Any
 
@@ -263,26 +263,25 @@ def harvest_datasets(from_date: datetime | None) -> list[dict[str, Any]]:
 
     return filter_datasets_by_date(datasets, from_date)
 
-async def harvest_finbif(run_info: dict[str, Any]) -> bool:
+async def harvest_finbif(run_info: HarvestRunCreateResponse) -> bool:
     harvest_events = 0
     failed_events = 0
     record_counter = 0
     success = True
 
-    harvest_run_id = run_info.get("id")
-    from_date = run_info.get("from_date")
-    from_ = datetime.fromisoformat(from_date.replace("Z", "+00:00")) if from_date else None
+    harvest_run_id = run_info.id
+    from_date = run_info.from_date
 
     logger.info(run_info)
 
-    if from_:
+    if from_date:
         logger.info("Incremental harvest since %s", from_date)
     else:
         logger.info("First harvest, fetching all records.")
 
     combined = []
     try:
-        datasets = harvest_datasets(from_)
+        datasets = harvest_datasets(from_date)
 
         dwc_urls = [
             ep["url"]
@@ -360,7 +359,7 @@ async def harvest_finbif(run_info: dict[str, Any]) -> bool:
 
     return success
 
-def run_harvester_finbif(run_info: dict[str, Any]) -> bool:
+def run_harvester_finbif(run_info: HarvestRunCreateResponse) -> bool:
     """
     Entry point for FinBIF harvesting from main.py
     """
