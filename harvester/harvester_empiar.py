@@ -1,7 +1,7 @@
 import logging, os, httpx, xml.etree.ElementTree as ET, time, json
 from .db_api_functions import send_harvest_event
 from xml.dom import minidom
-from typing import Any, Dict, Iterator
+from typing import Any, Iterator, cast
 
 _EMPIAR_CLIENT = httpx.Client(
     timeout = httpx.Timeout(120),
@@ -17,7 +17,7 @@ PAGE_SIZE = 100
 
 
 
-def search_page(page: int, query: str) -> Dict[str, Any]:
+def search_page(page: int, query: str) -> dict[str, Any]:
     """
     Fetch one page of results from `GET /emdb/api/empiar/search/{query}`.
  
@@ -30,14 +30,14 @@ def search_page(page: int, query: str) -> Dict[str, Any]:
     :return: The parsed JSON payload for that page.
     """
     url = DEFAULT_BASE_URL + SEARCH_PATH.format(query = query)
-    params: Dict[str, Any] = {"rows": PAGE_SIZE, "page": page, "fl": "*"}
+    params: dict[str, Any] = {"rows": PAGE_SIZE, "page": page, "fl": "*"}
     response = _EMPIAR_CLIENT.get(url, params = params)
     response.raise_for_status()
-    return response.json()
+    return cast(dict[str, Any], response.json())
 
 
 
-def search_all() -> Iterator[Dict[str, Any]]:
+def search_all() -> Iterator[dict[str, Any]]:
     """
     Walk every page of the EMPIAR search endpoint and yield each page's
     payload as it's fetched.
@@ -67,8 +67,16 @@ def search_all() -> Iterator[Dict[str, Any]]:
 
 
 
-def search_incremental(from_date: str, until_date: str) -> Iterator[Dict[str, Any]]:
-    """"""
+def search_incremental(from_date: str, until_date: str) -> Iterator[dict[str, Any]]:
+    """
+    Walk every page of the EMPIAR search endpoint for entries updated within
+    a date range, and yield each page's payload as it's fetched.
+
+    :param from_date: The start of the update-date range.
+    :param until_date: The end of the update-date range.
+    :return: An iterator over page payloads, where each payload is a dict
+        mapping EMPIAR IDs to their metadata records.
+    """
     page = 1
     total_records = 0
     query = f"database:EMPIAR AND update_date:[{from_date} TO {until_date}]"
@@ -91,7 +99,7 @@ def search_incremental(from_date: str, until_date: str) -> Iterator[Dict[str, An
 
 
 
-def empiar_additional_file_metadata(entry_id:  str) -> list[dict]:
+def empiar_additional_file_metadata(entry_id:  str) -> list[dict[str, Any]]:
     """
     Fetch the image-set metadata for a single EMPIAR entry
 
@@ -102,11 +110,11 @@ def empiar_additional_file_metadata(entry_id:  str) -> list[dict]:
     response = _EMPIAR_CLIENT.get(empiar_entry_endpoint)
     response.raise_for_status()
     payload = response.json()
-    return payload[f"EMPIAR-{entry_id}"]["imagesets"]
+    return cast(list[dict[str, Any]], payload[f"EMPIAR-{entry_id}"]["imagesets"])
 
 
 
-def add_file_sizes(empiar_id: str, additional_file_metadata: list[dict]) -> list[dict]:
+def add_file_sizes(empiar_id: str, additional_file_metadata: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Adds the byte size of each additional file collection to its metadata.
 
     :param empiar_id: The EMPIAR accession identifier.
@@ -149,14 +157,14 @@ def add_orcid(parent_el: ET.Element, orcid: str | None) -> None:
 
 
 
-def extract_keywords_from_emdb_references(record: Dict[str, Any]) -> list[str]:
+def extract_keywords_from_emdb_references(record: dict[str, Any]) -> set[str]:
     """
     Extract useful descriptive keywords from linked EMDB entries.
     """
 
-    keywords = set()
+    keywords = set[str]()
 
-    def add(value):
+    def add(value: str) -> None:
         if value:
             keywords.update(x.strip() for x in str(value).split(",") if x.strip())
 
@@ -178,7 +186,7 @@ def extract_keywords_from_emdb_references(record: Dict[str, Any]) -> list[str]:
 
 
 
-def empiar_data_to_datacite(entry_id: str, record: Dict[str, Any], keywords: list[str]) -> tuple[str, str, str]:
+def empiar_data_to_datacite(entry_id: str, record: dict[str, Any], keywords: set[str]) -> tuple[str, Any | str]:
     """
     Convert an EMPIAR entry record into a DataCite 4.6 XML record wrapped in
     an OAI-PMH <record> element.
@@ -439,7 +447,7 @@ def empiar_data_to_datacite(entry_id: str, record: Dict[str, Any], keywords: lis
 
 
 
-def run_harvester_empiar(run_info: dict) -> bool:
+def run_harvester_empiar(run_info: dict[str, Any]) -> bool:
     """
     Run a full (or incremental) EMPIAR harvest and push
     each entry to the data warehouse as a harvest event.
@@ -461,11 +469,13 @@ def run_harvester_empiar(run_info: dict) -> bool:
         harvest_url = config.get("harvest_url")
         from_date = run_info.get("from_date")
         until_date = run_info.get("until_date")
-        projects = []
+        if until_date is None:
+            raise ValueError("Missing until_date parameter")
+        projects: list[dict[str, Any]] = []
         if not from_date:
             projects = list(search_all())
         else:
-            projects = search_incremental(from_date, until_date)
+            projects = list(search_incremental(from_date, until_date))
         
         for page in projects:
             for empiar_key, record in page.items():
