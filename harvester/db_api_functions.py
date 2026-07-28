@@ -1,7 +1,6 @@
-import os
 import httpx
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Any
 from harvester.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -16,7 +15,7 @@ HARVEST_EVENT_URL = f"{base_url}/harvest_event"
 _WAREHOUSE_CLIENT = httpx.Client(timeout=timeout)
 
 
-def start_harvest_run(harvest_url: str) -> Optional[Dict[str, Any]]:
+def start_harvest_run(harvest_url: str) -> Optional[dict[str, Any]]:
     """
     POST /harvest_run to create a new harvest run. 
     
@@ -27,7 +26,7 @@ def start_harvest_run(harvest_url: str) -> Optional[Dict[str, Any]]:
     try:
         response = _WAREHOUSE_CLIENT.post(HARVEST_RUN_URL, json=payload)
         response.raise_for_status()
-        run_info = response.json()
+        run_info: dict[str, Any] = response.json()
         logger.info("Started harvest run id=%s.", run_info.get("id"))
         return run_info
     except httpx.RequestError as e:
@@ -46,8 +45,8 @@ def get_open_run_id(harvest_url: str) -> Optional[str]:
         response = _WAREHOUSE_CLIENT.get(HARVEST_RUN_URL, params=params)
         response.raise_for_status()
 
-        response = response.json()
-        runs = response.get("harvest_runs", [])
+        response_json: dict[str, Any] = response.json()
+        runs = response_json.get("harvest_runs", [])
 
         if not runs:
             return None
@@ -55,7 +54,8 @@ def get_open_run_id(harvest_url: str) -> Optional[str]:
         run = runs[0]
 
         if run.get("status") == "open":
-            return run.get("id")
+            run_id =  run.get("id")
+            return str(run_id) if run_id is not None else None
 
         return None
 
@@ -68,7 +68,7 @@ def get_open_run_id(harvest_url: str) -> Optional[str]:
         return None
     
 
-def close_harvest_run(payload: Dict) -> None:
+def close_harvest_run(payload: dict[str, Any]) -> None:
     """
     PUT /harvest_run to close the harvest run.
 
@@ -88,7 +88,7 @@ def close_harvest_run(payload: Dict) -> None:
         logger.error("Failed to close harvest run %s: %s", run_id, e)
 
 
-def send_harvest_event(event_payload: Dict) -> bool:
+def send_harvest_event(event_payload: dict[str, Any]) -> bool:
     """
     Send event_payload to API.
 
@@ -107,7 +107,7 @@ def send_harvest_event(event_payload: Dict) -> bool:
         return False
 
 
-def close_warehouse_client():
+def close_warehouse_client() -> None:
     try:
         _WAREHOUSE_CLIENT.close()
     except Exception:

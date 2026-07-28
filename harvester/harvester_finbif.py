@@ -6,9 +6,9 @@ import json
 import os
 from datetime import datetime, timezone
 from lxml import etree
-from harvester.settings import settings
 from harvester.db_api_functions import send_harvest_event
 import re
+from typing import cast, Any
 
 
 logger = logging.getLogger(__name__)
@@ -18,6 +18,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Base URL and config for the FinBIF API
 API_BASE = "https://api.gbif.org"
 API_ADDITIONAL = "https://tun.fi"
+LAJI_FI_API = "https://laji.fi/api/warehouse/query/unit/aggregate"
 KEY = "b1304814-56cc-434e-8d40-2b24fa21526f"
 
 OAI_NS = "http://www.openarchives.org/OAI/2.0/"
@@ -54,14 +55,14 @@ _ASYNC_FINBIF_CLIENT = httpx.AsyncClient(
     timeout=httpx.Timeout(120),
 )
 
-def shutdown_client():
+def shutdown_client() -> None:
     try:
         _FINBIF_CLIENT.close()
         logger.info("Client closed successfully.")
     except Exception as e:
         logger.error("Error closing client: %s", e)
 
-async def shutdown_async_client():
+async def shutdown_async_client() -> None:
     """
     Shutdown the shared async client.
     """
@@ -72,15 +73,42 @@ async def shutdown_async_client():
         logger.error("Error closing async client: %s", e)
 
 
-def build_datacite_xml(record: dict) -> str:
+async def fetch_aggregate_taxon_data(collection_id: str) -> list[dict[str, Any]]:
+    """
+    Fetch aggregate taxon data from laji.fi for enrichment.
+    Returns aggregate results with taxon names and counts.
+    """
+    params: dict[str, str | int] = {
+        "collectionId": collection_id,
+        "aggregateBy": "unit.linkings.taxon.scientificName",
+        "pageSize": 10,
+        "onlyCount": "false",
+    } # Returns top 10 scientific names based on occurrence counts in the collection
+    
+    try:
+        response = await _ASYNC_FINBIF_CLIENT.get(LAJI_FI_API, params=params)
+        response.raise_for_status()
+        data = response.json()
+        results: list[dict[str, Any]] = data.get("results", [])
+        logger.debug("Fetched aggregate data for %s: %d taxa", collection_id, len(results))
+        return results
+    except Exception as e:
+        logger.warning("Failed to fetch aggregate data for %s: %s", collection_id, e)
+        return []
+
+
+def build_datacite_xml(record: dict[str, Any], aggregate_data: list[dict[str, Any]] | None = None) -> str:
     dataset = record["dataset"]
     additional = record["additional"]
     dataset_id = record["id"]
+    
+    if aggregate_data is None:
+        aggregate_data = []
 
     # OAI-PMH wrapper
     root = etree.Element(
         f"{{{OAI_NS}}}record",
-        nsmap={None: OAI_NS, "xsi": XSI_NS},
+        nsmap={cast(Any, None): OAI_NS, "xsi": XSI_NS},
     )
 
     # Header
@@ -97,7 +125,7 @@ def build_datacite_xml(record: dict) -> str:
     resource = etree.SubElement(
         metadata,
         "resource",
-        nsmap={None: DC_NS, "xsi": XSI_NS},
+        nsmap={cast(Any, None): DC_NS, "xsi": XSI_NS},
         attrib={f"{{{XSI_NS}}}schemaLocation": SCHEMA_LOCATION},
     )
 
@@ -135,6 +163,16 @@ def build_datacite_xml(record: dict) -> str:
         etree.SubElement(subjects_el, "subject",
                          attrib={f"{{{XML_NS}}}lang": lang},
                          ).text = text
+
+    # taxon data from finbif API (aggregateBy)
+    for item in aggregate_data:
+        agg = item.get("aggregateBy", {})
+        sci_name = agg.get("unit.linkings.taxon.scientificName")
+        
+        # Add scientific name (Latin)
+        if sci_name:
+            sci_el = etree.SubElement(subjects_el, "subject")
+            sci_el.text = sci_name
 
     # contributors
     if dataset["contacts"]:
@@ -193,7 +231,7 @@ def build_datacite_xml(record: dict) -> str:
 
     return etree.tostring(root, pretty_print=True, xml_declaration=True, encoding="UTF-8").decode()
 
-def filter_datasets_by_date(datasets: list[dict], from_date: datetime | None) -> list[dict]:
+def filter_datasets_by_date(datasets: list[dict[str, Any]], from_date: datetime | None) -> list[dict[str, Any]]:
     if from_date is None:
         return datasets
 
@@ -215,7 +253,7 @@ def filter_datasets_by_date(datasets: list[dict], from_date: datetime | None) ->
     )
     return filtered
 
-def harvest_datasets(from_date: datetime | None) -> list[dict]:
+def harvest_datasets(from_date: datetime | None) -> list[dict[str, Any]]:
     logger.info(f'Getting datasets with from_date: {from_date}')
 
     response = _FINBIF_CLIENT.get(f'{API_BASE}/v1/installation/{KEY}/dataset', params={"limit": 1000}, headers={"Accept": "application/json", "User-Agent": "EOSC Data Commons harvester"})
@@ -225,7 +263,7 @@ def harvest_datasets(from_date: datetime | None) -> list[dict]:
 
     return filter_datasets_by_date(datasets, from_date)
 
-async def harvest_finbif(run_info: dict) -> bool:
+async def harvest_finbif(run_info: dict[str, Any]) -> bool:
     harvest_events = 0
     failed_events = 0
     record_counter = 0
@@ -279,15 +317,15 @@ async def harvest_finbif(run_info: dict) -> bool:
         logger.error(f"Unexpected error while harvesting datasets: {e}")
         return False
 
-    finally:
-        shutdown_client()
-        await shutdown_async_client()
-
     for record in combined:
         record_counter += 1
         record_identifier = record["dataset"]["doi"]
+        dataset_id = record["id"]
 
-        datacite_xml = build_datacite_xml(record)
+        # Fetch aggregate taxon data for enrichment
+        aggregate_data = await fetch_aggregate_taxon_data(dataset_id.replace(f"{API_ADDITIONAL}/", ""))
+
+        datacite_xml = build_datacite_xml(record, aggregate_data)
 
         try:
             event_payload = {
@@ -317,9 +355,12 @@ async def harvest_finbif(run_info: dict) -> bool:
         failed_events
     )
 
+    shutdown_client()
+    await shutdown_async_client()
+
     return success
 
-def run_harvester_finbif(run_info: dict) -> bool:
+def run_harvester_finbif(run_info: dict[str, Any]) -> bool:
     """
     Entry point for FinBIF harvesting from main.py
     """

@@ -25,11 +25,11 @@ class ProductionSettings(BaseAppSettings):
 
 
 class StagingSettings(BaseAppSettings):
-    WAREHOUSE_API_URL: AnyHttpUrl = "http://192.168.10.6:8080"
+    WAREHOUSE_API_URL: AnyHttpUrl = "http://192.168.10.6:8080" # type: ignore[assignment]
 
 
 class DevSettings(BaseAppSettings):
-    WAREHOUSE_API_URL: AnyHttpUrl = "http://localhost:8080"
+    WAREHOUSE_API_URL: AnyHttpUrl = "http://localhost:8080" # type: ignore[assignment]
 
 
 class LocalSettings(BaseAppSettings):
@@ -37,14 +37,14 @@ class LocalSettings(BaseAppSettings):
 
 
 def get_settings() -> BaseAppSettings:
-    env: Environment = os.getenv("ENVIRONMENT", "dev")
+    env: Environment = os.getenv("ENVIRONMENT", "dev") # type: ignore[assignment]
 
     if env == "production":
-        return ProductionSettings()
+        return ProductionSettings() # type: ignore[call-arg]
     elif env == "staging":
         return StagingSettings()
     elif env == "local":
-        return LocalSettings()
+        return LocalSettings() # type: ignore[call-arg]
     else:
         return DevSettings()
 
