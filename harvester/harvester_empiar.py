@@ -48,7 +48,7 @@ def search_all() -> Iterator[dict[str, Any]]:
     page = 1
     total_records = 0
     query = "*"
-    while total_records < 5:
+    while True:
         payload = search_page(page, query)
 
         if not payload:
