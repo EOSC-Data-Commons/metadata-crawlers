@@ -6,6 +6,7 @@ from .additional_metadata_functions import close_dataverse_client
 from .harvester_oaipmh import run_harvester_oaipmh
 from harvester.harvester_finbif import run_harvester_finbif
 from harvester.harvester_mdposit import run_harvester_mdposit
+from harvester.harvester_empiar import run_harvester_empiar
 from .db_api_functions import start_harvest_run, close_harvest_run, get_open_run_id, close_warehouse_client
 from .logging import setup_logging
 
@@ -65,6 +66,8 @@ def main() -> int:
             harvest_success = run_harvester_finbif(run_info)
         elif harvesting_protocol == "MDPOSIT_API":
             harvest_success = run_harvester_mdposit(run_info)
+        elif harvesting_protocol == "EMPIAR_API":
+            harvest_success = run_harvester_empiar(run_info)
         else:
             raise ValueError(f"Unsupported protocol: {harvesting_protocol}")
 
