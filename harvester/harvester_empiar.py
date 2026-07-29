@@ -123,10 +123,13 @@ def add_file_sizes(empiar_id: str, additional_file_metadata: list[dict[str, Any]
     """
     empiar_entry_endpoint = f"https://www.ebi.ac.uk/empiar/{empiar_id}/dirStruct%3Dfull&list%3D1/"
     for index, metadata in enumerate(additional_file_metadata):
-        response = _EMPIAR_CLIENT.get(f"{empiar_entry_endpoint}{index}/")
-        response.raise_for_status()
-        payload = response.json()
-        metadata["byte_size"] = payload[0]["size"]
+        try:
+            response = _EMPIAR_CLIENT.get(f"{empiar_entry_endpoint}{index}/")
+            response.raise_for_status()
+            payload = response.json()
+            metadata["byte_size"] = payload[0]["size"]
+        except Exception as e:
+            logger.error("Error while fetching additional file size: %s", e)
     
     return additional_file_metadata
 
@@ -160,6 +163,12 @@ def add_orcid(parent_el: ET.Element, orcid: str | None) -> None:
 def extract_keywords_from_emdb_references(record: dict[str, Any]) -> set[str]:
     """
     Extract useful descriptive keywords from linked EMDB entries.
+
+    :param record: An EMPIAR record containing a ``cross_references`` field
+            with references to associated EMDB entries.
+
+    :return: A set of unique descriptive keywords extracted from the linked
+            EMDB entries.
     """
 
     keywords = set[str]()
@@ -471,13 +480,8 @@ def run_harvester_empiar(run_info: dict[str, Any]) -> bool:
         until_date = run_info.get("until_date")
         if until_date is None:
             raise ValueError("Missing until_date parameter")
-        projects: list[dict[str, Any]] = []
-        if not from_date:
-            projects = list(search_all())
-        else:
-            projects = list(search_incremental(from_date, until_date))
-        
-        for page in projects:
+        pages = search_all() if not from_date else search_incremental(from_date, until_date)
+        for page in pages:
             for empiar_key, record in page.items():
                 entry_id = empiar_key.removeprefix("EMPIAR-")
                 keywords = extract_keywords_from_emdb_references(record)
@@ -491,7 +495,7 @@ def run_harvester_empiar(run_info: dict[str, Any]) -> bool:
                     "raw_metadata": xml_out,
                     "additional_metadata": json.dumps(additional_file_metadata_updated),
                     "harvest_url": harvest_url,
-                    "repo_code": "MDDB",
+                    "repo_code": config.get("code"),
                     "harvest_run_id": run_info.get("id"),
                     "is_deleted": False
                 }

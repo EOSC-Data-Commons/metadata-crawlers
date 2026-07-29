@@ -406,7 +406,7 @@ def run_harvester_mdposit(run_info: dict[str, Any]) -> bool:
                 "raw_metadata": mdposit_xml,
                 "additional_metadata": additional_file_metadata,
                 "harvest_url": harvest_url,
-                "repo_code": "MDDB",
+                "repo_code": config.get("code"),
                 "harvest_run_id": run_info.get("id"),
                 "is_deleted": False
             }
