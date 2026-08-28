@@ -27,7 +27,7 @@ PREFIX dct: <http://purl.org/dc/terms/>
 PREFIX locn: <http://www.w3.org/ns/locn#>
 
 SELECT ?title ?authors ?description ?landingpage ?identifier ?download_urls
-       ?startDate ?endDate ?locations ?publishers ?issued ?languages ?licenses ?keywords ?modified
+       ?startDate ?endDate ?publishers ?issued ?languages ?licenses ?keywords ?modified
 WHERE {
   {
     SELECT DISTINCT ?dataset
@@ -82,16 +82,8 @@ WHERE {
     GROUP BY ?dataset
   }
 
-  OPTIONAL {
-    SELECT ?dataset (GROUP_CONCAT(DISTINCT ?loc; separator=" | ") AS ?locations)
-    WHERE {
-      ?dataset dct:spatial ?bnode_spatial.
-      ?bnode_spatial locn:geometry ?loc.
-    }
-    GROUP BY ?dataset
-  }
 
-    OPTIONAL {
+  OPTIONAL {
     SELECT ?dataset (GROUP_CONCAT(DISTINCT ?pubLabel; separator=", ") AS ?publishers)
     WHERE {
         ?dataset dct:publisher ?pub.
