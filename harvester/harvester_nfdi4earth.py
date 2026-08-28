@@ -1,7 +1,7 @@
 import logging, os, time, json, re, xml.etree.ElementTree as ET, requests
 from .db_api_functions import send_harvest_event
 from xml.dom import minidom
-from typing import Any, Iterator, cast
+from typing import Any, Callable, Iterator, cast
 from urllib.error import HTTPError
 from datetime import datetime, timezone
 
@@ -138,9 +138,10 @@ def search_page(offset: int, since_filter: str = "") -> list[dict[str, Any]]:
     query += f"\nOFFSET {offset} LIMIT {PAGE_SIZE}"
     _NFDI4EARTH_CLIENT.setQuery(query)
 
+    response: dict[str, Any] | None = None
     for attempt in range(MAX_RETRIES):
         try:
-            response = _NFDI4EARTH_CLIENT.queryAndConvert()
+            response = cast(dict[str, Any], _NFDI4EARTH_CLIENT.queryAndConvert())
             break
         except HTTPError as e:
             if e.code == 504 and attempt < MAX_RETRIES - 1:
@@ -149,6 +150,11 @@ def search_page(offset: int, since_filter: str = "") -> list[dict[str, Any]]:
                 time.sleep(wait)
             else:
                 raise
+
+    if response is None:
+        raise RuntimeError(
+            f"search_page got no response after {MAX_RETRIES} attempts (offset={offset})"
+        )
 
     return cast(list[dict[str, Any]], response["results"]["bindings"])
 
@@ -279,13 +285,14 @@ def _resolve_ror_publisher(publisher_url: str) -> dict[str, Any] | None:
     try:
         resp = requests.get(f"https://api.ror.org/organizations/{ror_id}", timeout=5)
         if resp.ok:
-            data = resp.json()
-            names = data.get("names", [])
+            data: dict[str, Any] = resp.json()
+            names: list[dict[str, Any]] = data.get("names", [])
 
-            def pick(pred):
+            def pick(pred: Callable[[dict[str, Any]], bool]) -> str | None:
                 for n in names:
                     if pred(n):
-                        return n.get("value")
+                        value = n.get("value")
+                        return str(value) if value is not None else None
                 return None
 
             name = (
