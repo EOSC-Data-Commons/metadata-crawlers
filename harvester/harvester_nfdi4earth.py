@@ -3,7 +3,7 @@ from .db_api_functions import send_harvest_event
 from xml.dom import minidom
 from typing import Any, Callable, Iterator, cast
 from urllib.error import HTTPError
-from datetime import datetime, timezone
+from datetime import datetime
 
 from SPARQLWrapper import SPARQLWrapper, JSON as SPARQL_JSON
 
@@ -12,7 +12,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_ENDPOINT_URL = "https://sparql.knowledgehub.nfdi4earth.de/"
 
-PAGE_SIZE = 50
+PAGE_SIZE = 10000
 MAX_RETRIES = 3
 
 _NFDI4EARTH_CLIENT = SPARQLWrapper(DEFAULT_ENDPOINT_URL)
@@ -24,96 +24,116 @@ PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 PREFIX dcat: <http://www.w3.org/ns/dcat#>
 PREFIX schema: <http://schema.org/>
 PREFIX dct: <http://purl.org/dc/terms/>
-PREFIX locn: <http://www.w3.org/ns/locn#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
 
-SELECT ?title ?authors ?description ?landingpage ?identifier ?download_urls
-       ?startDate ?endDate ?publishers ?issued ?languages ?licenses ?keywords ?modified
+SELECT ?dataset ?title ?authors ?description ?landingpage ?download_urls
+       ?startDate ?endDate ?publishers ?issued ?licenses ?keywords
 WHERE {
   {
-    SELECT DISTINCT ?dataset
+    SELECT DISTINCT ?dataset ?issued
     WHERE {
-        ?dataset rdf:type dcat:Dataset;
-                dct:title ?title.
+      ?dataset rdf:type dcat:Dataset ;
+               dct:issued ?issued .
+
+      @SINCE_FILTER@
     }
   }
 
-  ?dataset dct:title ?title.
-
-  @SINCE_FILTER@
+  ?dataset dct:title ?title .
 
   OPTIONAL {
     SELECT ?dataset (SAMPLE(?d) AS ?description)
-    WHERE { ?dataset schema:description ?d. }
-    GROUP BY ?dataset
-  }
-
-  OPTIONAL { ?dataset dcat:landingPage ?landingpage. }
-  OPTIONAL { ?dataset dct:identifier ?identifier. }
-  OPTIONAL { ?dataset dct:issued ?issued. }
-  OPTIONAL { ?dataset dct:modified ?modified. }
-
-  FILTER(BOUND(?issued) || BOUND(?modified))
-
-  OPTIONAL {
-    SELECT ?dataset (GROUP_CONCAT(DISTINCT ?authorName; separator=", ") AS ?authors)
     WHERE {
-      ?dataset dct:creator ?bnode_creator.
-      ?bnode_creator schema:name ?authorName.
+      ?dataset schema:description ?d .
     }
     GROUP BY ?dataset
   }
 
   OPTIONAL {
-    SELECT ?dataset (GROUP_CONCAT(DISTINCT ?download_url; separator=", ") AS ?download_urls)
+    ?dataset dcat:landingPage ?landingpage .
+  }
+
+  # OPTIONAL {
+    # ?dataset dct:issued ?issued .
+  # }
+
+  # FILTER(BOUND(?issued))
+  
+  # @SINCE_FILTER@
+
+  OPTIONAL {
+    SELECT ?dataset
+           (GROUP_CONCAT(DISTINCT ?authorName; separator=", ") AS ?authors)
     WHERE {
-      ?dataset dcat:distribution ?bnode_distrib.
-      ?bnode_distrib dcat:downloadURL ?download_url.
+      ?dataset dct:creator ?bnode_creator .
+      ?bnode_creator schema:name ?authorName .
     }
     GROUP BY ?dataset
   }
 
   OPTIONAL {
-    SELECT ?dataset (SAMPLE(?sd) AS ?startDate) (SAMPLE(?ed) AS ?endDate)
+    SELECT ?dataset
+           (GROUP_CONCAT(DISTINCT ?download_url; separator=", ") AS ?download_urls)
     WHERE {
-      ?dataset dct:temporal ?bnode_temporal.
-      ?bnode_temporal dcat:startDate ?sd;
-                       dcat:endDate ?ed.
+      ?dataset dcat:distribution ?bnode_distrib .
+      ?bnode_distrib dcat:downloadURL ?download_url .
     }
     GROUP BY ?dataset
   }
 
+  OPTIONAL {
+    SELECT ?dataset
+           (SAMPLE(?sd) AS ?startDate)
+           (SAMPLE(?ed) AS ?endDate)
+    WHERE {
+      ?dataset dct:temporal ?bnode_temporal .
+      ?bnode_temporal dcat:startDate ?sd ;
+                       dcat:endDate ?ed .
+    }
+    GROUP BY ?dataset
+  }
 
   OPTIONAL {
-    SELECT ?dataset (GROUP_CONCAT(DISTINCT ?pubLabel; separator=", ") AS ?publishers)
+    SELECT ?dataset
+           (GROUP_CONCAT(DISTINCT ?pubLabel; separator=", ") AS ?publishers)
     WHERE {
-        ?dataset dct:publisher ?pub.
-        OPTIONAL { ?pub foaf:name ?foafName. }
-        OPTIONAL { ?pub schema:name ?schemaName. }
-        BIND(
-        IF(isBlank(?pub),
-            COALESCE(?foafName, ?schemaName),
-            STR(?pub))
-        AS ?pubLabel
+      ?dataset dct:publisher ?pub .
+
+      OPTIONAL {
+        ?pub foaf:name ?foafName .
+      }
+
+      OPTIONAL {
+        ?pub schema:name ?schemaName .
+      }
+
+      BIND(
+        IF(
+          isBlank(?pub),
+          COALESCE(?foafName, ?schemaName),
+          STR(?pub)
         )
+        AS ?pubLabel
+      )
     }
-    GROUP BY ?dataset
-    }
-
-  OPTIONAL {
-    SELECT ?dataset (GROUP_CONCAT(DISTINCT ?lang; separator=", ") AS ?languages)
-    WHERE { ?dataset dct:language ?lang. }
     GROUP BY ?dataset
   }
 
   OPTIONAL {
-    SELECT ?dataset (GROUP_CONCAT(DISTINCT ?lic; separator=", ") AS ?licenses)
-    WHERE { ?dataset schema:license ?lic. }
+    SELECT ?dataset
+           (GROUP_CONCAT(DISTINCT ?lic; separator=", ") AS ?licenses)
+    WHERE {
+      ?dataset schema:license ?lic .
+    }
     GROUP BY ?dataset
   }
 
   OPTIONAL {
-    SELECT ?dataset (GROUP_CONCAT(DISTINCT ?kw; separator=", ") AS ?keywords)
-    WHERE { ?dataset dcat:keyword ?kw. }
+    SELECT ?dataset
+           (GROUP_CONCAT(DISTINCT ?kw; separator=", ") AS ?keywords)
+    WHERE {
+      ?dataset dcat:keyword ?kw .
+    }
     GROUP BY ?dataset
   }
 }
@@ -170,7 +190,7 @@ def search_all() -> Iterator[list[dict[str, Any]]]:
     offset = 0
     total_records = 0
     page_num = 1
-    while total_records < 15:
+    while True:
         page = search_page(offset)
 
         if not page:
@@ -203,17 +223,20 @@ def search_incremental(from_date: str, until_date: str) -> Iterator[list[dict[st
     :return: An iterator over pages, where each page is a list of SPARQL
             result bindings.
     """
+    from_date = from_date[:10]
+    until_date = until_date[:10]
+
     since_filter = (
         f'FILTER('
-        f'(BOUND(?modified) && ?modified >= "{from_date}"^^<http://www.w3.org/2001/XMLSchema#dateTime> && ?modified <= "{until_date}"^^<http://www.w3.org/2001/XMLSchema#dateTime>) '
-        f'|| (!BOUND(?modified) && BOUND(?issued) && ?issued >= "{from_date}"^^<http://www.w3.org/2001/XMLSchema#dateTime> && ?issued <= "{until_date}"^^<http://www.w3.org/2001/XMLSchema#dateTime>)'
+        f'?issued >= "{from_date}"^^<http://www.w3.org/2001/XMLSchema#date> && '
+        f'?issued <= "{until_date}"^^<http://www.w3.org/2001/XMLSchema#date>'
         f')'
     )
 
     offset = 0
     total_records = 0
     page_num = 1
-    while total_records < 15:
+    while True:
         page = search_page(offset, since_filter)
 
         if not page:
@@ -235,20 +258,20 @@ def search_incremental(from_date: str, until_date: str) -> Iterator[list[dict[st
         time.sleep(0.5)
 
 
-def _binding_value(record: dict[str, Any], key: str) -> str | None:
+def binding_value(record: dict[str, Any], key: str) -> str | None:
     """Return the plain string value of a SPARQL binding, or None."""
     binding = record.get(key)
     return binding.get("value") if binding else None
 
 
-def _split_list(value: str | None, sep: str = ",") -> list[str]:
+def split_list(value: str | None, sep: str = ",") -> list[str]:
     """Split a GROUP_CONCAT-style string into a clean list of parts."""
     if not value:
         return []
     return [p.strip() for p in value.split(sep) if p.strip()]
 
 
-def _extract_doi(url: str | None) -> str | None:
+def extract_doi(url: str | None) -> str | None:
     """Pull a bare DOI out of a URL, if present."""
     if not url:
         return None
@@ -256,9 +279,9 @@ def _extract_doi(url: str | None) -> str | None:
     return match.group(0) if match else None
 
 
-_ROR_CACHE: dict[str, dict[str, Any] | None] = {}
+ROR_CACHE: dict[str, dict[str, Any] | None] = {}
 
-def _resolve_ror_publisher(publisher_url: str) -> dict[str, Any] | None:
+def resolve_ror_publisher(publisher_url: str) -> dict[str, Any] | None:
     """
     Resolve a Cordra publisher URL (e.g. .../objects/n4e/ror-032e6b942) to
     a name + ROR ID by extracting the ROR ID and querying the ROR API.
@@ -278,8 +301,8 @@ def _resolve_ror_publisher(publisher_url: str) -> dict[str, Any] | None:
         return None
     ror_id = match.group(1)
 
-    if ror_id in _ROR_CACHE:
-        return _ROR_CACHE[ror_id]
+    if ror_id in ROR_CACHE:
+        return ROR_CACHE[ror_id]
 
     result = None
     try:
@@ -306,7 +329,7 @@ def _resolve_ror_publisher(publisher_url: str) -> dict[str, Any] | None:
     except requests.RequestException as e:
         logger.warning("ROR lookup failed for %s: %s", ror_id, e)
 
-    _ROR_CACHE[ror_id] = result
+    ROR_CACHE[ror_id] = result
     return result
 
 
@@ -322,22 +345,25 @@ def nfdi4earth_data_to_datacite(record: dict[str, Any]) -> tuple[str, str]:
             - xml_pretty (str): Formatted DataCite XML record.
             - datestamp (str): Record update/creation date (YYYY-MM-DD).
     """
-    title = _binding_value(record, "title")
-    authors_raw = _binding_value(record, "authors")
-    description = _binding_value(record, "description")
-    landingpage = _binding_value(record, "landingpage")
-    identifier = _binding_value(record, "identifier")
-    download_urls_raw = _binding_value(record, "download_urls")
-    start_date = _binding_value(record, "startDate")
-    end_date = _binding_value(record, "endDate")
-    publishers_raw = _binding_value(record, "publishers")
-    issued = _binding_value(record, "issued")
-    licenses_raw = _binding_value(record, "licenses")
-    keywords_raw = _binding_value(record, "keywords")
-    modified = _binding_value(record, "modified")
+    title = binding_value(record, "title")
+    authors_raw = binding_value(record, "authors")
+    description = binding_value(record, "description")
+    landingpage = binding_value(record, "landingpage")
+    # identifier = binding_value(record, "identifier")
+    download_urls_raw = binding_value(record, "download_urls")
+    start_date = binding_value(record, "startDate")
+    end_date = binding_value(record, "endDate")
+    publishers_raw = binding_value(record, "publishers")
+    issued = binding_value(record, "issued")
+    licenses_raw = binding_value(record, "licenses")
+    keywords_raw = binding_value(record, "keywords")
 
-    doi = _extract_doi(identifier) or _extract_doi(landingpage)
-    record_identifier = doi or landingpage or identifier or ""
+    dataset_id = binding_value(record, "dataset")
+    if not dataset_id:
+        raise ValueError("SPARQL record is missing dataset IRI")
+
+    doi = extract_doi(landingpage)
+    record_identifier = dataset_id or ""
 
     ET.register_namespace("", "http://www.openarchives.org/OAI/2.0/")
     ET.register_namespace("xsi", "http://www.w3.org/2001/XMLSchema-instance")
@@ -350,9 +376,11 @@ def nfdi4earth_data_to_datacite(record: dict[str, Any]) -> tuple[str, str]:
         })
 
     header = ET.SubElement(oai_record, "header")
+
     ET.SubElement(header, "identifier").text = record_identifier
 
-    datestamp_text = (modified or issued or "")[:10]
+    datestamp_text = (issued or "")[:10]
+    ET.SubElement(header, "datestamp").text = datestamp_text
 
     metadata = ET.SubElement(oai_record, "metadata")
 
@@ -376,7 +404,7 @@ def nfdi4earth_data_to_datacite(record: dict[str, Any]) -> tuple[str, str]:
         ET.SubElement(resource, "identifier", identifierType="URL").text = landingpage or ""
 
     # CREATORS
-    author_names = _split_list(authors_raw, sep=",")
+    author_names = split_list(authors_raw, sep=",")
     if author_names:
         creators = ET.SubElement(resource, "creators")
         for name in author_names:
@@ -388,10 +416,10 @@ def nfdi4earth_data_to_datacite(record: dict[str, Any]) -> tuple[str, str]:
     ET.SubElement(titles, "title").text = title
 
     # PUBLISHER (mandatory)
-    publisher_list = _split_list(publishers_raw, sep=",")
+    publisher_list = split_list(publishers_raw, sep=",")
     publisher_el = ET.SubElement(resource, "publisher")
     if publisher_list:
-        resolved = _resolve_ror_publisher(publisher_list[0])
+        resolved = resolve_ror_publisher(publisher_list[0])
         if resolved:
             publisher_el.text = resolved["name"]
             publisher_el.set("publisherIdentifier", f"https://ror.org/{resolved['ror_id']}")
@@ -403,7 +431,7 @@ def nfdi4earth_data_to_datacite(record: dict[str, Any]) -> tuple[str, str]:
         publisher_el.text = "unknown"
 
     # PUBLICATION YEAR (mandatory)
-    pub_year_source = issued or modified
+    pub_year_source = issued
     if pub_year_source:
         year_match = re.search(r"(\d{4})", pub_year_source)
         if year_match:
@@ -413,7 +441,7 @@ def nfdi4earth_data_to_datacite(record: dict[str, Any]) -> tuple[str, str]:
     ET.SubElement(resource, "resourceType", resourceTypeGeneral="Dataset").text = "Dataset"
 
     # DATES
-    if issued or start_date or end_date or modified:
+    if issued or start_date or end_date:
         dates = ET.SubElement(resource, "dates")
         if issued:
             ET.SubElement(dates, "date", dateType="Issued").text = issued
@@ -421,27 +449,25 @@ def nfdi4earth_data_to_datacite(record: dict[str, Any]) -> tuple[str, str]:
             ET.SubElement(dates, "date", dateType="Collected").text = f"{start_date}/{end_date}"
         elif start_date:
             ET.SubElement(dates, "date", dateType="Collected").text = start_date
-        if modified:
-            ET.SubElement(dates, "date", dateType="Updated").text = modified
 
     # RELATED IDENTIFIERS
     # DataCite has no dedicated "download URL" field; recording these as
     # relatedIdentifiers of type URL.
-    download_urls = _split_list(download_urls_raw, sep=",")
+    download_urls = split_list(download_urls_raw, sep=",")
     if download_urls:
         related = ET.SubElement(resource, "relatedIdentifiers")
         for url in download_urls:
             ET.SubElement(related, "relatedIdentifier", relatedIdentifierType="URL", relationType="IsSourceOf").text = url
 
     # SUBJECTS
-    keywords = _split_list(keywords_raw, sep=",")
+    keywords = split_list(keywords_raw, sep=",")
     if keywords:
         subjects_el = ET.SubElement(resource, "subjects")
         for word in keywords:
             ET.SubElement(subjects_el, "subject").text = word
 
     # RIGHTS
-    licenses = _split_list(licenses_raw, sep=",")
+    licenses = split_list(licenses_raw, sep=",")
     if licenses:
         rights_list = ET.SubElement(resource, "rightsList")
         for lic in licenses:
@@ -479,6 +505,8 @@ def run_harvester_nfdi4earth(run_info: dict[str, Any]) -> bool:
             raise ValueError("config is missing")
         harvest_url = config.get("harvest_url")
         from_date = run_info.get("from_date")
+        # from_date = "2026-08-25T00:00:00Z"
+        # from_date = datetime.strptime("2026-08-27T00:00:00Z", '%Y-%m-%dT%H:%M:%SZ').strftime('%Y-%m-%dT%H:%M:%SZ') if from_date else None
         until_date = run_info.get("until_date")
         if until_date is None:
             raise ValueError("Missing until_date parameter")
@@ -486,11 +514,7 @@ def run_harvester_nfdi4earth(run_info: dict[str, Any]) -> bool:
         for page in pages:
             for record in page:
                 xml_out, datestamp = nfdi4earth_data_to_datacite(record)
-                record_identifier = _extract_doi(_binding_value(record, "identifier")) \
-                    or _extract_doi(_binding_value(record, "landingpage")) \
-                    or _binding_value(record, "landingpage") \
-                    or _binding_value(record, "identifier") \
-                    or ""
+                record_identifier = binding_value(record, "dataset") or ""
                 record_count += 1
 
                 event_payload = {
