@@ -1,0 +1,618 @@
+import logging, os, time, json, re, xml.etree.ElementTree as ET, requests
+from .db_api_functions import send_harvest_event
+from xml.dom import minidom
+from typing import Any, Callable, Iterator, cast
+from urllib.error import HTTPError
+from datetime import datetime
+
+from SPARQLWrapper import SPARQLWrapper, JSON as SPARQL_JSON
+
+logger = logging.getLogger(__name__)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+DEFAULT_ENDPOINT_URL = "https://sparql.knowledgehub.nfdi4earth.de/"
+
+PAGE_SIZE = 10000
+MAX_RETRIES = 3
+
+_NFDI4EARTH_CLIENT = SPARQLWrapper(DEFAULT_ENDPOINT_URL)
+_NFDI4EARTH_CLIENT.setReturnFormat(SPARQL_JSON)
+
+BASE_QUERY = """
+PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX dcat: <http://www.w3.org/ns/dcat#>
+PREFIX schema: <http://schema.org/>
+PREFIX dct: <http://purl.org/dc/terms/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT ?dataset ?title ?authors ?description ?landingpage ?download_urls
+       ?startDate ?endDate ?publishers ?issued ?licenses ?keywords
+WHERE {
+  {
+    SELECT DISTINCT ?dataset ?issued
+    WHERE {
+        ?dataset rdf:type dcat:Dataset .
+
+        OPTIONAL {
+            ?dataset dct:issued ?issued .
+        }
+
+        @SINCE_FILTER@
+    }
+  }
+
+  ?dataset dct:title ?title .
+
+  OPTIONAL {
+    SELECT ?dataset (SAMPLE(?d) AS ?description)
+    WHERE {
+      ?dataset schema:description ?d .
+    }
+    GROUP BY ?dataset
+  }
+
+  OPTIONAL {
+    ?dataset dcat:landingPage ?landingpage .
+  }
+
+  # OPTIONAL {
+    # ?dataset dct:issued ?issued .
+  # }
+
+  # FILTER(BOUND(?issued))
+  
+  # @SINCE_FILTER@
+
+  OPTIONAL {
+    SELECT ?dataset
+           (GROUP_CONCAT(DISTINCT ?authorName; separator=", ") AS ?authors)
+    WHERE {
+      ?dataset dct:creator ?bnode_creator .
+      ?bnode_creator schema:name ?authorName .
+    }
+    GROUP BY ?dataset
+  }
+
+  OPTIONAL {
+    SELECT ?dataset
+           (GROUP_CONCAT(DISTINCT ?download_url; separator=", ") AS ?download_urls)
+    WHERE {
+      ?dataset dcat:distribution ?bnode_distrib .
+      ?bnode_distrib dcat:downloadURL ?download_url .
+    }
+    GROUP BY ?dataset
+  }
+
+  OPTIONAL {
+    SELECT ?dataset
+           (SAMPLE(?sd) AS ?startDate)
+           (SAMPLE(?ed) AS ?endDate)
+    WHERE {
+      ?dataset dct:temporal ?bnode_temporal .
+      ?bnode_temporal dcat:startDate ?sd ;
+                       dcat:endDate ?ed .
+    }
+    GROUP BY ?dataset
+  }
+
+  OPTIONAL {
+    SELECT ?dataset
+           (GROUP_CONCAT(DISTINCT ?pubLabel; separator=", ") AS ?publishers)
+    WHERE {
+      ?dataset dct:publisher ?pub .
+
+      OPTIONAL {
+        ?pub foaf:name ?foafName .
+      }
+
+      OPTIONAL {
+        ?pub schema:name ?schemaName .
+      }
+
+      BIND(
+        IF(
+          isBlank(?pub),
+          COALESCE(?foafName, ?schemaName),
+          STR(?pub)
+        )
+        AS ?pubLabel
+      )
+    }
+    GROUP BY ?dataset
+  }
+
+  OPTIONAL {
+    SELECT ?dataset
+           (GROUP_CONCAT(DISTINCT ?lic; separator=", ") AS ?licenses)
+    WHERE {
+      ?dataset schema:license ?lic .
+    }
+    GROUP BY ?dataset
+  }
+
+  OPTIONAL {
+    SELECT ?dataset
+           (GROUP_CONCAT(DISTINCT ?kw; separator=", ") AS ?keywords)
+    WHERE {
+      ?dataset dcat:keyword ?kw .
+    }
+    GROUP BY ?dataset
+  }
+}
+"""
+
+
+def search_page(offset: int, since_filter: str = "") -> list[dict[str, Any]]:
+    """
+    Fetch one page of results from the NFDI4Earth KnowledgeHub SPARQL endpoint.
+
+    Queries the endpoint with the module-level `BASE_QUERY`, using the
+    module-level `PAGE_SIZE` as the row count. Transient HTTP errors
+    (429, 500, 502, 503, and 504) are retried up to `MAX_RETRIES` times
+    with an increasing delay between attempts. Other HTTP errors are
+    raised immediately.
+
+    :param offset: The row offset to start the page at.
+    :param since_filter: A SPARQL `FILTER(...)` clause restricting results
+            to datasets modified within a date range, or `""` for no filter.
+
+    :return: The list of SPARQL result bindings for that page.
+
+    :raises HTTPError: If a non-retryable HTTP error occurs, or if all retry
+            attempts for a transient HTTP error are exhausted.
+    :raises RuntimeError: If no response is obtained after all retry attempts.
+    """
+    query = BASE_QUERY.replace("@SINCE_FILTER@", since_filter)
+    query += f"\nOFFSET {offset} LIMIT {PAGE_SIZE}"
+    _NFDI4EARTH_CLIENT.setQuery(query)
+
+    retryable_status_codes = {429, 500, 502, 503, 504}
+
+    response: dict[str, Any] | None = None
+
+    for attempt in range(MAX_RETRIES):
+        try:
+            response = cast(
+                dict[str, Any],
+                _NFDI4EARTH_CLIENT.queryAndConvert(),
+            )
+            break
+
+        except HTTPError as e:
+            if e.code not in retryable_status_codes:
+                raise
+
+            if attempt >= MAX_RETRIES - 1:
+                logger.error(
+                    "HTTP %d at offset %d after %d attempts; giving up.",
+                    e.code,
+                    offset,
+                    MAX_RETRIES,
+                )
+                raise
+
+            wait = 5 * (attempt + 1)
+
+            logger.warning(
+                "HTTP %d at offset %d, retrying in %ds "
+                "(attempt %d/%d)...",
+                e.code,
+                offset,
+                wait,
+                attempt + 1,
+                MAX_RETRIES,
+            )
+
+            time.sleep(wait)
+
+    if response is None:
+        raise RuntimeError(
+            f"search_page got no response after "
+            f"{MAX_RETRIES} attempts (offset={offset})"
+        )
+
+    return cast(
+        list[dict[str, Any]],
+        response["results"]["bindings"],
+    )
+
+
+def search_all() -> Iterator[list[dict[str, Any]]]:
+    """
+    Walk every page of the NFDI4Earth KnowledgeHub SPARQL endpoint and
+    yield each page's bindings as they're fetched.
+
+    :return: An iterator over pages, where each page is a list of SPARQL
+            result bindings.
+    """
+    offset = 0
+    total_records = 0
+    page_num = 1
+    while True:
+        page = search_page(offset)
+
+        if not page:
+            logger.info("Page %d empty, stopping", page_num)
+            break
+
+        total_records += len(page)
+        logger.info(
+            "Page %d: %d records (%d total so far)",
+            page_num, len(page), total_records,
+        )
+        yield page
+
+        if len(page) < PAGE_SIZE:
+            break
+
+        offset += PAGE_SIZE
+        page_num += 1
+        time.sleep(0.5)
+
+
+def search_incremental(from_date: str, until_date: str) -> Iterator[list[dict[str, Any]]]:
+    """
+    Walk every page of the NFDI4Earth KnowledgeHub SPARQL endpoint for
+    datasets modified within a date range, and yield each page's bindings
+    as they're fetched.
+
+    :param from_date: The start of the update-date range (ISO 8601).
+    :param until_date: The end of the update-date range (ISO 8601).
+    :return: An iterator over pages, where each page is a list of SPARQL
+            result bindings.
+    """
+    from_date = from_date[:10]
+    until_date = until_date[:10]
+
+    since_filter = (
+        f'FILTER('
+        f'?issued >= "{from_date}"^^<http://www.w3.org/2001/XMLSchema#date> && '
+        f'?issued <= "{until_date}"^^<http://www.w3.org/2001/XMLSchema#date>'
+        f')'
+    )
+
+    offset = 0
+    total_records = 0
+    page_num = 1
+    while True:
+        page = search_page(offset, since_filter)
+
+        if not page:
+            logger.info("Page %d empty, stopping", page_num)
+            break
+
+        total_records += len(page)
+        logger.info(
+            "Page %d: %d records (%d total so far)",
+            page_num, len(page), total_records,
+        )
+        yield page
+
+        if len(page) < PAGE_SIZE:
+            break
+
+        offset += PAGE_SIZE
+        page_num += 1
+        time.sleep(0.5)
+
+
+def binding_value(record: dict[str, Any], key: str) -> str | None:
+    """Return the plain string value of a SPARQL binding, or None."""
+    binding = record.get(key)
+    return binding.get("value") if binding else None
+
+
+def split_list(value: str | None, sep: str = ",") -> list[str]:
+    """Split a GROUP_CONCAT-style string into a clean list of parts."""
+    if not value:
+        return []
+    return [p.strip() for p in value.split(sep) if p.strip()]
+
+
+def extract_doi(url: str | None) -> str | None:
+    """Pull a bare DOI out of a URL, if present."""
+    if not url:
+        return None
+    match = re.search(r"10\.\d{4,9}/\S+", url)
+    return match.group(0) if match else None
+
+
+ROR_CACHE: dict[str, dict[str, Any] | None] = {}
+
+def resolve_ror_publisher(publisher_url: str) -> dict[str, Any] | None:
+    """Resolve a publisher value containing a ROR ID to name + ROR identifier."""
+
+    match = re.search(r"(?:ror-|ror\.org/)([a-z0-9]+)", publisher_url, re.IGNORECASE)
+    if not match:
+        return None
+
+    ror_id = match.group(1).lower()
+
+    if ror_id in ROR_CACHE:
+        return ROR_CACHE[ror_id]
+
+    try:
+        resp = requests.get(
+            f"https://api.ror.org/organizations/{ror_id}",
+            timeout=10,
+        )
+        resp.raise_for_status()
+
+        data: dict[str, Any] = resp.json()
+        names: list[dict[str, Any]] = data.get("names", [])
+
+        name = next(
+            (
+                n["value"]
+                for n in names
+                if "ror_display" in n.get("types", [])
+                and n.get("value")
+            ),
+            None,
+        )
+
+        if not name:
+            name = next(
+                (
+                    n["value"]
+                    for n in names
+                    if n.get("lang") == "en"
+                    and "acronym" not in n.get("types", [])
+                    and n.get("value")
+                ),
+                None,
+            )
+
+        if not name:
+            name = next(
+                (
+                    n["value"]
+                    for n in names
+                    if "acronym" not in n.get("types", [])
+                    and n.get("value")
+                ),
+                None,
+            )
+
+        if not name:
+            logger.warning("No usable name found for ROR %s", ror_id)
+            return None
+
+        result = {
+            "name": str(name),
+            "ror_id": ror_id,
+        }
+
+        ROR_CACHE[ror_id] = result
+        return result
+
+    except requests.RequestException as e:
+        logger.warning("ROR lookup failed for %s: %s", ror_id, e)
+        return None
+
+
+def nfdi4earth_data_to_datacite(record: dict[str, Any]) -> tuple[str, str]:
+    """
+    Convert an NFDI4Earth KnowledgeHub dataset record into a DataCite 4.6
+    XML record wrapped in an OAI-PMH <record> element.
+
+    :param record: A single SPARQL result binding, as returned by
+            `search_page`.
+
+    :return: A tuple containing:
+            - xml_pretty (str): Formatted DataCite XML record.
+            - datestamp (str): Record update/creation date (YYYY-MM-DD).
+    """
+    title = binding_value(record, "title")
+    authors_raw = binding_value(record, "authors")
+    description = binding_value(record, "description")
+    landingpage = binding_value(record, "landingpage")
+    # identifier = binding_value(record, "identifier")
+    download_urls_raw = binding_value(record, "download_urls")
+    start_date = binding_value(record, "startDate")
+    end_date = binding_value(record, "endDate")
+    publishers_raw = binding_value(record, "publishers")
+    issued = binding_value(record, "issued")
+    licenses_raw = binding_value(record, "licenses")
+    keywords_raw = binding_value(record, "keywords")
+
+    dataset_id = binding_value(record, "dataset")
+    if not dataset_id:
+        raise ValueError("SPARQL record is missing dataset IRI")
+
+    doi = extract_doi(landingpage)
+    record_identifier = dataset_id or ""
+
+    ET.register_namespace("", "http://www.openarchives.org/OAI/2.0/")
+    ET.register_namespace("xsi", "http://www.w3.org/2001/XMLSchema-instance")
+
+    # OAI-PMH RECORD ROOT
+    oai_record = ET.Element(
+        "record", {
+            "xmlns": "http://www.openarchives.org/OAI/2.0/",
+            "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+        })
+
+    header = ET.SubElement(oai_record, "header")
+
+    ET.SubElement(header, "identifier").text = record_identifier
+
+    if issued:
+        datestamp_text = issued[:10]
+    else:
+        datestamp_text = datetime.now().date().isoformat()
+
+    ET.SubElement(header, "datestamp").text = datestamp_text
+
+    metadata = ET.SubElement(oai_record, "metadata")
+
+    resource = ET.SubElement(
+        metadata,
+        "resource",
+        {
+            "xmlns": "http://datacite.org/schema/kernel-4",
+            "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+            "xsi:schemaLocation": (
+                "http://datacite.org/schema/kernel-4 "
+                "https://schema.datacite.org/meta/kernel-4.6/metadata.xsd"
+            ),
+        },
+    )
+
+    # IDENTIFIER (mandatory)
+    if doi:
+        ET.SubElement(resource, "identifier", identifierType="DOI").text = doi
+    else:
+        ET.SubElement(resource, "identifier", identifierType="URL").text = landingpage or ""
+
+    # CREATORS
+    author_names = split_list(authors_raw, sep=",")
+    if author_names:
+        creators = ET.SubElement(resource, "creators")
+        for name in author_names:
+            creator = ET.SubElement(creators, "creator")
+            ET.SubElement(creator, "creatorName").text = name  # no nameType attribute at all
+
+    # TITLES (mandatory)
+    titles = ET.SubElement(resource, "titles")
+    ET.SubElement(titles, "title").text = title
+
+    # PUBLISHER (mandatory)
+    publisher_list = split_list(publishers_raw, sep=",")
+    publisher_el = ET.SubElement(resource, "publisher")
+    if publisher_list:
+        resolved = resolve_ror_publisher(publisher_list[0])
+        if resolved:
+            publisher_el.text = resolved["name"]
+            publisher_el.set("publisherIdentifier", f"https://ror.org/{resolved['ror_id']}")
+            publisher_el.set("publisherIdentifierScheme", "ROR")
+            publisher_el.set("schemeURI", "https://ror.org")
+        else:
+            publisher_el.text = publisher_list[0]  # fall back to raw URL if resolution fails
+    else:
+        publisher_el.text = "unknown"
+
+    # PUBLICATION YEAR (mandatory)
+    if issued:
+        pub_year_source = issued
+    else:
+        pub_year_source = datestamp_text
+
+    year_match = re.search(r"(\d{4})", pub_year_source)
+    if year_match:
+        ET.SubElement(resource, "publicationYear").text = year_match.group(1)
+
+    # RESOURCE TYPE (mandatory)
+    ET.SubElement(resource, "resourceType", resourceTypeGeneral="Dataset").text = "Dataset"
+
+    # DATES
+    if issued or start_date or end_date:
+        dates = ET.SubElement(resource, "dates")
+        if issued:
+            ET.SubElement(dates, "date", dateType="Issued").text = issued
+        if start_date and end_date:
+            ET.SubElement(dates, "date", dateType="Collected").text = f"{start_date}/{end_date}"
+        elif start_date:
+            ET.SubElement(dates, "date", dateType="Collected").text = start_date
+
+    # RELATED IDENTIFIERS
+    # DataCite has no dedicated "download URL" field; recording these as
+    # relatedIdentifiers of type URL.
+    download_urls = split_list(download_urls_raw, sep=",")
+    if download_urls:
+        related = ET.SubElement(resource, "relatedIdentifiers")
+        for url in download_urls:
+            ET.SubElement(related, "relatedIdentifier", relatedIdentifierType="URL", relationType="IsSourceOf").text = url
+
+    # SUBJECTS
+    keywords = split_list(keywords_raw, sep=",")
+    if keywords:
+        subjects_el = ET.SubElement(resource, "subjects")
+        for word in keywords:
+            ET.SubElement(subjects_el, "subject").text = word
+
+    # RIGHTS
+    licenses = split_list(licenses_raw, sep=",")
+    if licenses:
+        rights_list = ET.SubElement(resource, "rightsList")
+        for lic in licenses:
+            ET.SubElement(rights_list, "rights", rightsURI=lic)
+
+    # DESCRIPTIONS
+    if description:
+        descriptions = ET.SubElement(resource, "descriptions")
+        ET.SubElement(descriptions, "description", descriptionType="Abstract").text = description
+
+    xml_str = ET.tostring(oai_record, encoding="unicode")
+    xml_pretty = minidom.parseString(xml_str).toprettyxml(indent="  ")
+
+    return xml_pretty, datestamp_text
+
+
+def run_harvester_nfdi4earth(run_info: dict[str, Any]) -> bool:
+    """
+    Run a full (or incremental) NFDI4Earth KnowledgeHub harvest and push
+    each entry to the data warehouse as a harvest event.
+
+    :param run_info: Dictionary describing the harvest run.
+
+    :return: `True` if every harvest event was sent successfully (and no
+            unexpected exception occurred), `False` if any event failed to
+            send or an exception was raised during the run.
+    """
+    record_count = 0
+    harvest_events = 0
+    failed_events = 0
+    try:
+
+        config = run_info.get("endpoint_config")
+        if config is None:
+            raise ValueError("config is missing")
+        harvest_url = config.get("harvest_url")
+        from_date = run_info.get("from_date")
+        until_date = run_info.get("until_date")
+        if until_date is None:
+            raise ValueError("Missing until_date parameter")
+        pages = search_all() if not from_date else search_incremental(from_date, until_date)
+        for page in pages:
+            for record in page:
+                xml_out, datestamp = nfdi4earth_data_to_datacite(record)
+                record_identifier = binding_value(record, "dataset") or ""
+                record_count += 1
+
+                event_payload = {
+                    "record_identifier": record_identifier,
+                    "datestamp": datestamp,
+                    "raw_metadata": xml_out,
+                    "additional_metadata": json.dumps({}),
+                    "harvest_url": harvest_url,
+                    "repo_code": config.get("code"),
+                    "harvest_run_id": run_info.get("id"),
+                    "is_deleted": False,
+                }
+
+                if send_harvest_event(event_payload):
+                    harvest_events += 1
+                else:
+                    failed_events += 1
+
+        logger.info(
+            "Harvest summary: processed %s records, successfully sent %s of them to the warehouse, "
+            "failed to send %s records.",
+            record_count,
+            harvest_events,
+            failed_events
+        )
+
+        return failed_events == 0
+
+    except Exception as e:
+        logger.exception("Unexpected error in run_harvester_nfdi4earth: %s", e)
+        logger.info(
+            "Harvest summary: processed %s records, successfully sent %s of them to the warehouse, "
+            "failed to send %s records.",
+            record_count,
+            harvest_events,
+            failed_events        )
+        return False
