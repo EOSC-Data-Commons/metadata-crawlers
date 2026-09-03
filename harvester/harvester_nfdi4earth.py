@@ -32,10 +32,13 @@ WHERE {
   {
     SELECT DISTINCT ?dataset ?issued
     WHERE {
-      ?dataset rdf:type dcat:Dataset ;
-               dct:issued ?issued .
+        ?dataset rdf:type dcat:Dataset .
 
-      @SINCE_FILTER@
+        OPTIONAL {
+            ?dataset dct:issued ?issued .
+        }
+
+        @SINCE_FILTER@
     }
   }
 
@@ -145,38 +148,74 @@ def search_page(offset: int, since_filter: str = "") -> list[dict[str, Any]]:
     Fetch one page of results from the NFDI4Earth KnowledgeHub SPARQL endpoint.
 
     Queries the endpoint with the module-level `BASE_QUERY`, using the
-    module-level `PAGE_SIZE` as the row count, and retries on transient
-    HTTP 504 timeouts.
+    module-level `PAGE_SIZE` as the row count. Transient HTTP errors
+    (429, 500, 502, 503, and 504) are retried up to `MAX_RETRIES` times
+    with an increasing delay between attempts. Other HTTP errors are
+    raised immediately.
 
     :param offset: The row offset to start the page at.
     :param since_filter: A SPARQL `FILTER(...)` clause restricting results
             to datasets modified within a date range, or `""` for no filter.
 
     :return: The list of SPARQL result bindings for that page.
+
+    :raises HTTPError: If a non-retryable HTTP error occurs, or if all retry
+            attempts for a transient HTTP error are exhausted.
+    :raises RuntimeError: If no response is obtained after all retry attempts.
     """
     query = BASE_QUERY.replace("@SINCE_FILTER@", since_filter)
     query += f"\nOFFSET {offset} LIMIT {PAGE_SIZE}"
     _NFDI4EARTH_CLIENT.setQuery(query)
 
+    retryable_status_codes = {429, 500, 502, 503, 504}
+
     response: dict[str, Any] | None = None
+
     for attempt in range(MAX_RETRIES):
         try:
-            response = cast(dict[str, Any], _NFDI4EARTH_CLIENT.queryAndConvert())
+            response = cast(
+                dict[str, Any],
+                _NFDI4EARTH_CLIENT.queryAndConvert(),
+            )
             break
+
         except HTTPError as e:
-            if e.code == 504 and attempt < MAX_RETRIES - 1:
-                wait = 5 * (attempt + 1)
-                logger.warning("504 timeout at offset %d, retrying in %ds...", offset, wait)
-                time.sleep(wait)
-            else:
+            if e.code not in retryable_status_codes:
                 raise
+
+            if attempt >= MAX_RETRIES - 1:
+                logger.error(
+                    "HTTP %d at offset %d after %d attempts; giving up.",
+                    e.code,
+                    offset,
+                    MAX_RETRIES,
+                )
+                raise
+
+            wait = 5 * (attempt + 1)
+
+            logger.warning(
+                "HTTP %d at offset %d, retrying in %ds "
+                "(attempt %d/%d)...",
+                e.code,
+                offset,
+                wait,
+                attempt + 1,
+                MAX_RETRIES,
+            )
+
+            time.sleep(wait)
 
     if response is None:
         raise RuntimeError(
-            f"search_page got no response after {MAX_RETRIES} attempts (offset={offset})"
+            f"search_page got no response after "
+            f"{MAX_RETRIES} attempts (offset={offset})"
         )
 
-    return cast(list[dict[str, Any]], response["results"]["bindings"])
+    return cast(
+        list[dict[str, Any]],
+        response["results"]["bindings"],
+    )
 
 
 def search_all() -> Iterator[list[dict[str, Any]]]:
@@ -282,55 +321,75 @@ def extract_doi(url: str | None) -> str | None:
 ROR_CACHE: dict[str, dict[str, Any] | None] = {}
 
 def resolve_ror_publisher(publisher_url: str) -> dict[str, Any] | None:
-    """
-    Resolve a Cordra publisher URL (e.g. .../objects/n4e/ror-032e6b942) to
-    a name + ROR ID by extracting the ROR ID and querying the ROR API.
+    """Resolve a publisher value containing a ROR ID to name + ROR identifier."""
 
-    Name preference order: English alias/label > ROR's own ror_display
-    name (whatever language) > any remaining name. Acronyms are skipped
-    since they're too terse to stand alone as a publisher name.
-
-    Results are cached in-process by ROR ID since the same handful of
-    organizations repeat across many records.
-
-    :param publisher_url: The raw publisher value from the SPARQL result.
-    :return: {"name": str, "ror_id": str} or None if it can't be resolved.
-    """
-    match = re.search(r"ror-([a-z0-9]+)", publisher_url)
+    match = re.search(r"(?:ror-|ror\.org/)([a-z0-9]+)", publisher_url, re.IGNORECASE)
     if not match:
         return None
-    ror_id = match.group(1)
+
+    ror_id = match.group(1).lower()
 
     if ror_id in ROR_CACHE:
         return ROR_CACHE[ror_id]
 
-    result = None
     try:
-        resp = requests.get(f"https://api.ror.org/organizations/{ror_id}", timeout=5)
-        if resp.ok:
-            data: dict[str, Any] = resp.json()
-            names: list[dict[str, Any]] = data.get("names", [])
+        resp = requests.get(
+            f"https://api.ror.org/organizations/{ror_id}",
+            timeout=10,
+        )
+        resp.raise_for_status()
 
-            def pick(pred: Callable[[dict[str, Any]], bool]) -> str | None:
-                for n in names:
-                    if pred(n):
-                        value = n.get("value")
-                        return str(value) if value is not None else None
-                return None
+        data: dict[str, Any] = resp.json()
+        names: list[dict[str, Any]] = data.get("names", [])
 
-            name = (
-                pick(lambda n: n.get("lang") == "en" and "acronym" not in n.get("types", []))
-                or pick(lambda n: "ror_display" in n.get("types", []))
-                or pick(lambda n: "acronym" not in n.get("types", []))
+        name = next(
+            (
+                n["value"]
+                for n in names
+                if "ror_display" in n.get("types", [])
+                and n.get("value")
+            ),
+            None,
+        )
+
+        if not name:
+            name = next(
+                (
+                    n["value"]
+                    for n in names
+                    if n.get("lang") == "en"
+                    and "acronym" not in n.get("types", [])
+                    and n.get("value")
+                ),
+                None,
             )
 
-            if name:
-                result = {"name": name, "ror_id": ror_id}
+        if not name:
+            name = next(
+                (
+                    n["value"]
+                    for n in names
+                    if "acronym" not in n.get("types", [])
+                    and n.get("value")
+                ),
+                None,
+            )
+
+        if not name:
+            logger.warning("No usable name found for ROR %s", ror_id)
+            return None
+
+        result = {
+            "name": str(name),
+            "ror_id": ror_id,
+        }
+
+        ROR_CACHE[ror_id] = result
+        return result
+
     except requests.RequestException as e:
         logger.warning("ROR lookup failed for %s: %s", ror_id, e)
-
-    ROR_CACHE[ror_id] = result
-    return result
+        return None
 
 
 def nfdi4earth_data_to_datacite(record: dict[str, Any]) -> tuple[str, str]:
@@ -379,7 +438,11 @@ def nfdi4earth_data_to_datacite(record: dict[str, Any]) -> tuple[str, str]:
 
     ET.SubElement(header, "identifier").text = record_identifier
 
-    datestamp_text = (issued or "")[:10]
+    if issued:
+        datestamp_text = issued[:10]
+    else:
+        datestamp_text = datetime.now().date().isoformat()
+
     ET.SubElement(header, "datestamp").text = datestamp_text
 
     metadata = ET.SubElement(oai_record, "metadata")
@@ -431,11 +494,14 @@ def nfdi4earth_data_to_datacite(record: dict[str, Any]) -> tuple[str, str]:
         publisher_el.text = "unknown"
 
     # PUBLICATION YEAR (mandatory)
-    pub_year_source = issued
-    if pub_year_source:
-        year_match = re.search(r"(\d{4})", pub_year_source)
-        if year_match:
-            ET.SubElement(resource, "publicationYear").text = year_match.group(1)
+    if issued:
+        pub_year_source = issued
+    else:
+        pub_year_source = datestamp_text
+
+    year_match = re.search(r"(\d{4})", pub_year_source)
+    if year_match:
+        ET.SubElement(resource, "publicationYear").text = year_match.group(1)
 
     # RESOURCE TYPE (mandatory)
     ET.SubElement(resource, "resourceType", resourceTypeGeneral="Dataset").text = "Dataset"
@@ -505,8 +571,6 @@ def run_harvester_nfdi4earth(run_info: dict[str, Any]) -> bool:
             raise ValueError("config is missing")
         harvest_url = config.get("harvest_url")
         from_date = run_info.get("from_date")
-        # from_date = "2026-08-25T00:00:00Z"
-        # from_date = datetime.strptime("2026-08-27T00:00:00Z", '%Y-%m-%dT%H:%M:%SZ').strftime('%Y-%m-%dT%H:%M:%SZ') if from_date else None
         until_date = run_info.get("until_date")
         if until_date is None:
             raise ValueError("Missing until_date parameter")
