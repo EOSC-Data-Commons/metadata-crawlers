@@ -156,3 +156,46 @@ def fetch_additional_metadata_zenodo(record_id: str, base_url: str) -> Optional[
         )
         return None
 
+
+def fetch_additional_metadata_dasch(record_id: str, base_url: str) -> Optional[str]:
+    """
+    Fetch file metadata from the DaSCH metadata API for a given record.
+
+    The DaSCH shortcode and file ID are the last two "/"-separated segments
+    of the OAI-PMH identifier, e.g. "ark:/72163/1/0803/HSawn_7cU2iqqkMuAjvyugA"
+    -> shortcode "0803", file ID "HSawn_7cU2iqqkMuAjvyugA".
+
+    :param record_id: OAI-PMH record identifier
+    :param base_url: DaSCH metadata API base endpoint
+    :return: stringified JSON with file metadata; returns None if not found
+             or on error
+    """
+    segments = [s for s in record_id.split("/") if s]
+    if len(segments) < 2:
+        logger.warning(
+            "Cannot parse shortcode/fileId from DaSCH identifier %s", record_id
+        )
+        return None
+
+    short_code, file_id = segments[-2], segments[-1]
+    url = f"{base_url.rstrip('/')}/{short_code}/{file_id}/file"
+
+    try:
+        response = _DATAVERSE_CLIENT.get(url)
+        response.raise_for_status()
+        return json.dumps(response.json(), indent=2)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            logger.info("No DaSCH file metadata available for %s", url)
+        else:
+            logger.warning(
+                "Failed to fetch DaSCH file metadata for %s: HTTP %s",
+                record_id,
+                e.response.status_code,
+            )
+        return None
+    except httpx.RequestError as e:
+        logger.error(
+            "Network error fetching DaSCH file metadata for %s: %s", record_id, e
+        )
+        return None
