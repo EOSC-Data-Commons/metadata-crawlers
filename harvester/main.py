@@ -2,7 +2,7 @@ import argparse
 import logging
 from datetime import datetime, timezone
 
-from .additional_metadata_functions import close_dataverse_client
+from .additional_metadata_functions import close_metadata_client
 from .harvester_oaipmh import run_harvester_oaipmh
 from harvester.harvester_finbif import run_harvester_finbif
 from harvester.harvester_mdposit import run_harvester_mdposit
@@ -90,7 +90,7 @@ def main() -> int:
                 "completed_at": end_time,
             }
             close_harvest_run(close_harvest_run_payload)
-        close_dataverse_client()
+        close_metadata_client()
         close_warehouse_client()
 
     return 0 if harvest_success else 1
