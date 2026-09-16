@@ -149,10 +149,9 @@ def fetch_additional_metadata_zenodo(record_id: str, base_url: str) -> Optional[
     url = f"{base_url}/{record_id}/files"
 
     try:
-        with httpx.Client(transport = RetryTransport(retry = retry_strategy)) as client:
-            response = client.get(url)
-            response.raise_for_status()
-            return json.dumps(response.json(), indent=2)
+        response = _METADATA_CLIENT.get(url)
+        response.raise_for_status()
+        return json.dumps(response.json(), indent = 2)
 
     except httpx.HTTPStatusError as e:
         logger.warning(
