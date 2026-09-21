@@ -1,34 +1,45 @@
 import httpx
-from typing import Optional
 import json
 import logging
-from typing import Any
+from typing import Optional
 from oaipmh_scythe import Scythe
 from lxml import etree as ET
+from httpx_retries import Retry, RetryTransport
 
-_DATAVERSE_CLIENT: Optional[httpx.Client] = None
+
+# Status codes worth retrying on: rate limiting + transient server errors
+RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+ 
+retry_strategy = Retry(
+    total = 8,
+    backoff_factor = 0.5,
+    status_forcelist = RETRYABLE_STATUS_CODES,
+    allowed_methods = {"GET"},
+)
+
+_METADATA_CLIENT: Optional[httpx.Client] = None
 
 logger = logging.getLogger(__name__)
 
 
-def _dataverse_client() -> httpx.Client:
-    """Return the shared Dataverse HTTP client, creating it if needed."""
-    global _DATAVERSE_CLIENT
-    if _DATAVERSE_CLIENT is None:
-        _DATAVERSE_CLIENT = httpx.Client(timeout = 30)
-    return _DATAVERSE_CLIENT
+def _metadata_client() -> httpx.Client:
+    """Return the shared Metadata HTTP client, creating it if needed."""
+    global _METADATA_CLIENT
+    if _METADATA_CLIENT is None:
+        _METADATA_CLIENT = httpx.Client(transport = RetryTransport(retry = retry_strategy), timeout = 30)
+    return _METADATA_CLIENT
 
 
-def close_dataverse_client() -> None:
-    global _DATAVERSE_CLIENT
-    if _DATAVERSE_CLIENT is None:
+def close_metadata_client() -> None:
+    global _METADATA_CLIENT
+    if _METADATA_CLIENT is None:
         return
     try:
-        _DATAVERSE_CLIENT.close()
+        _METADATA_CLIENT.close()
     except Exception:
         logger.warning("Failed to close Dataverse client")
     finally:
-        _DATAVERSE_CLIENT = None
+        _METADATA_CLIENT = None
 
 
 def fetch_dataverse_json(doi: str, base_url: str, exporter: str | None) -> Optional[str]:
@@ -42,9 +53,9 @@ def fetch_dataverse_json(doi: str, base_url: str, exporter: str | None) -> Optio
     """
     params = {"exporter": exporter, "persistentId": doi}
     try:
-        response = _dataverse_client().get(base_url, params=params)
+        response = _metadata_client().get(base_url, params=params)
         response.raise_for_status()
-        return json.dumps(response.json(), indent=2)
+        return json.dumps(response.json(), indent = 2)
     except httpx.HTTPStatusError as e:
         logger.warning(
             "Failed to fetch Dataverse JSON for %s: HTTP %s",
@@ -84,7 +95,7 @@ def fetch_additional_metadata_hal(record_id: str, base_url: str) -> Optional[str
     }
 
     try:
-        response = _dataverse_client().get(base_url, params=params)
+        response = _metadata_client().get(base_url, params=params)
         response.raise_for_status()
         data = response.json()
         if not data.get("response", {}).get("docs"):
@@ -120,7 +131,7 @@ def fetch_additional_oai(record_id: str, base_url: str, metadata_prefix: str) ->
     """
     try:
         with Scythe(base_url) as client:
-            record = client.get_record(identifier=record_id, metadata_prefix=metadata_prefix)
+            record = client.get_record(identifier = record_id, metadata_prefix = metadata_prefix)
             return ET.tostring(record.xml, pretty_print=True, encoding="unicode")
     except Exception as e:
         logger.warning("Error fetching %s metadata for %s: %s", metadata_prefix, record_id, e)
@@ -147,10 +158,9 @@ def fetch_additional_metadata_zenodo(record_id: str, base_url: str) -> Optional[
     url = f"{base_url}/{record_id}/files"
 
     try:
-        with httpx.Client() as client:
-            response = client.get(url)
-            response.raise_for_status()
-            return json.dumps(response.json(), indent=2)
+        response = _metadata_client().get(url)
+        response.raise_for_status()
+        return json.dumps(response.json(), indent = 2)
 
     except httpx.HTTPStatusError as e:
         logger.warning(
@@ -168,3 +178,46 @@ def fetch_additional_metadata_zenodo(record_id: str, base_url: str) -> Optional[
         )
         return None
 
+
+def fetch_additional_metadata_dasch(record_id: str, base_url: str) -> Optional[str]:
+    """
+    Fetch file metadata from the DaSCH metadata API for a given record.
+
+    The DaSCH shortcode and file ID are the last two "/"-separated segments
+    of the OAI-PMH identifier, e.g. "ark:/72163/1/0803/HSawn_7cU2iqqkMuAjvyugA"
+    -> shortcode "0803", file ID "HSawn_7cU2iqqkMuAjvyugA".
+
+    :param record_id: OAI-PMH record identifier
+    :param base_url: DaSCH metadata API base endpoint
+    :return: stringified JSON with file metadata; returns None if not found
+             or on error
+    """
+    segments = [s for s in record_id.split("/") if s]
+    if len(segments) < 2:
+        logger.warning(
+            "Cannot parse shortcode/fileId from DaSCH identifier %s", record_id
+        )
+        return None
+
+    short_code, file_id = segments[-2], segments[-1]
+    url = f"{base_url}{short_code}/{file_id}/file"
+
+    try:
+        response = _metadata_client().get(url)
+        response.raise_for_status()
+        return json.dumps(response.json(), indent=2)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            logger.info("No DaSCH file metadata available for %s", url)
+        else:
+            logger.warning(
+                "Failed to fetch DaSCH file metadata for %s: HTTP %s",
+                record_id,
+                e.response.status_code,
+            )
+        return None
+    except httpx.RequestError as e:
+        logger.error(
+            "Network error fetching DaSCH file metadata for %s: %s", record_id, e
+        )
+        return None

@@ -10,7 +10,7 @@ from oaipmh_scythe.models import Record
 from oaipmh_scythe.exceptions import NoRecordsMatch
 
 from .additional_metadata_functions import fetch_dataverse_json, fetch_additional_oai, fetch_additional_metadata_hal, \
-    fetch_additional_metadata_zenodo
+    fetch_additional_metadata_zenodo, fetch_additional_metadata_dasch
 from .db_api_functions import send_harvest_event
 from .zenodo_functions import resolve_zenodo_dois
 
@@ -113,6 +113,12 @@ def transformation_and_additional_metadata(raw_metadata: str | None,
 
         elif additional_protocol == "ZENODO_API": # ZENODO
             additional_metadata = fetch_additional_metadata_zenodo(
+                record_id = identifier,
+                base_url = additional_endpoint
+            )
+        
+        elif additional_protocol == "DASCH_API": # DASCH
+            additional_metadata = fetch_additional_metadata_dasch(
                 record_id = identifier,
                 base_url = additional_endpoint
             )
