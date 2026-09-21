@@ -45,8 +45,10 @@ def get_settings() -> HarvesterSettings:
         return StagingSettings()
     elif env == "local":
         return LocalSettings() # type: ignore[call-arg]
-    else:
+    elif env == "dev":
         return DevSettings()
+    else:
+        raise ValueError(f"Unknown ENVIRONMENT: {env}")
 
 
 # settings in use, read through current_settings() so it can be swapped per run
