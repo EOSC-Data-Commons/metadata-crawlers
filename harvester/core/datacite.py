@@ -38,8 +38,8 @@ def add_orcid(parent_el: ET.Element, orcid: str | None) -> None:
         parent_el,
         "nameIdentifier",
         orcid if orcid.startswith("http") else f"https://orcid.org/{orcid}",
-        nameIdentifierScheme="ORCID",
-        schemeURI="https://orcid.org",
+        nameIdentifierScheme = "ORCID",
+        schemeURI = "https://orcid.org",
     )
 
 
@@ -75,14 +75,14 @@ def to_datacite_oai_xml(record: HarvestedRecord) -> str:
     )
 
     # IDENTIFIER (mandatory)
-    _sub(resource, "identifier", meta.identifier, identifierType=meta.identifier_type)
+    _sub(resource, "identifier", meta.identifier, identifierType = meta.identifier_type)
 
     # CREATORS (mandatory)
     if meta.creators:
         creators = ET.SubElement(resource, "creators")
         for person in meta.creators:
             creator = ET.SubElement(creators, "creator")
-            _sub(creator, "creatorName", person.name, nameType=person.name_type)
+            _sub(creator, "creatorName", person.name, nameType = person.name_type)
             add_orcid(creator, person.orcid)
             if person.affiliation:
                 _sub(creator, "affiliation", person.affiliation)
@@ -99,7 +99,7 @@ def to_datacite_oai_xml(record: HarvestedRecord) -> str:
         _sub(resource, "publicationYear", meta.publication_year)
 
     # RESOURCE TYPE (mandatory)
-    _sub(resource, "resourceType", meta.resource_type, resourceTypeGeneral=meta.resource_type_general)
+    _sub(resource, "resourceType", meta.resource_type, resourceTypeGeneral = meta.resource_type_general)
 
     # LANGUAGE
     if meta.language:
@@ -109,8 +109,8 @@ def to_datacite_oai_xml(record: HarvestedRecord) -> str:
     if meta.contributors:
         contributors = ET.SubElement(resource, "contributors")
         for c in meta.contributors:
-            contributor = _sub(contributors, "contributor", contributorType=c.contributor_type)
-            _sub(contributor, "contributorName", c.person.name, nameType=c.person.name_type)
+            contributor = _sub(contributors, "contributor", contributorType = c.contributor_type)
+            _sub(contributor, "contributorName", c.person.name, nameType = c.person.name_type)
             add_orcid(contributor, c.person.orcid)
             if c.person.affiliation:
                 _sub(contributor, "affiliation", c.person.affiliation)
@@ -119,13 +119,13 @@ def to_datacite_oai_xml(record: HarvestedRecord) -> str:
     if meta.dates:
         dates = ET.SubElement(resource, "dates")
         for d in meta.dates:
-            _sub(dates, "date", d.value, dateType=d.date_type)
+            _sub(dates, "date", d.value, dateType = d.date_type)
 
     # RELATED IDENTIFIERS
     if meta.related_identifiers:
         related = ET.SubElement(resource, "relatedIdentifiers")
         for r in meta.related_identifiers:
-            _sub(related, "relatedIdentifier", r.value, relatedIdentifierType=r.id_type, relationType=r.relation)
+            _sub(related, "relatedIdentifier", r.value, relatedIdentifierType = r.id_type, relationType = r.relation)
 
     # SIZES
     if meta.sizes:
@@ -160,7 +160,7 @@ def to_datacite_oai_xml(record: HarvestedRecord) -> str:
     if meta.descriptions:
         descriptions = ET.SubElement(resource, "descriptions")
         for desc in meta.descriptions:
-            _sub(descriptions, "description", desc.text, descriptionType=desc.description_type)
+            _sub(descriptions, "description", desc.text, descriptionType = desc.description_type)
 
     # FUNDING REFERENCES
     if meta.funding_references:
@@ -171,5 +171,5 @@ def to_datacite_oai_xml(record: HarvestedRecord) -> str:
             if grant.award_number:
                 _sub(funding_ref, "awardNumber", grant.award_number)
 
-    xml_str = ET.tostring(oai_record, encoding="unicode")
-    return minidom.parseString(xml_str).toprettyxml(indent="  ")
+    xml_str = ET.tostring(oai_record, encoding = "unicode")
+    return minidom.parseString(xml_str).toprettyxml(indent = "  ")

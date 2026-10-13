@@ -16,19 +16,19 @@ class Person:
 @dataclass
 class Contributor:
     person: Person
-    contributor_type: str  # DataCite contributorType, e.g. "ProjectLeader"
+    contributor_type: str
 
 
 @dataclass
 class DateEntry:
-    date_type: str  # DataCite dateType, e.g. "Submitted", "Available", "Updated"
-    value: str      # already formatted (YYYY-MM-DD)
+    date_type: str
+    value: str
 
 
 @dataclass
 class RelatedIdentifier:
-    id_type: str    # e.g. "DOI", "URL"
-    relation: str   # e.g. "IsDocumentedBy"
+    id_type: str
+    relation: str
     value: str
 
 
@@ -42,7 +42,7 @@ class Rights:
 @dataclass
 class Description:
     text: str
-    description_type: str  # e.g. "Abstract", "TechnicalInfo"
+    description_type: str
 
 
 @dataclass
@@ -56,10 +56,10 @@ class CommonRecord:
     """DataCite-shaped metadata. Empty lists / None mean "omit this element"."""
     # mandatory DataCite properties
     identifier: str
-    identifier_type: str            # "DOI", "URL", ...
+    identifier_type: str
     title: str | None
     publisher: str
-    resource_type: str              # free-text part of <resourceType>
+    resource_type: str
     resource_type_general: str = "Dataset"
     publication_year: str | None = None
     creators: list[Person] = field(default_factory = list)
@@ -81,7 +81,7 @@ class CommonRecord:
 class HarvestedRecord:
     """Everything the runner needs to send one harvest event."""
     record_id: str
-    datestamp: str                  # YYYY-MM-DD, used for incremental harvesting
+    datestamp: str
     metadata: CommonRecord
     additional_metadata: Any = None
     is_deleted: bool = False

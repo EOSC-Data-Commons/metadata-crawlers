@@ -8,6 +8,7 @@ from harvester.harvester_finbif import run_harvester_finbif
 from harvester.harvester_mdposit import run_harvester_mdposit
 from harvester.harvester_empiar import run_harvester_empiar
 from harvester.harvester_nfdi4earth import run_harvester_nfdi4earth
+from harvester.harvester_emdb import run_harvester_emdb
 from .db_api_functions import start_harvest_run, close_harvest_run, get_open_run_id, close_warehouse_client
 from .logging import setup_logging
 
@@ -71,6 +72,8 @@ def main() -> int:
             harvest_success = run_harvester_empiar(run_info)
         elif harvesting_protocol == "NFDI4EARTH_API":
             harvest_success = run_harvester_nfdi4earth(run_info)
+        elif harvesting_protocol == "EMDB_API":
+            harvest_success = run_harvester_emdb(run_info)
         else:
             raise ValueError(f"Unsupported protocol: {harvesting_protocol}")
 

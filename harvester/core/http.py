@@ -12,6 +12,7 @@ DEFAULT_TIMEOUT = 120
 RETRY_STATUS = {429, 500, 502, 503, 504}
 
 
+
 def make_client(timeout: float = DEFAULT_TIMEOUT) -> httpx.Client:
     """Create an httpx client. Each adapter keeps its own module-level client."""
     return httpx.Client(timeout = httpx.Timeout(timeout))
@@ -23,7 +24,7 @@ def get_json(
     attempts: int = 3, backoff: float = 2.0, **kwargs: Any) -> Any:
     """
     GET `url` and return the parsed JSON, retrying on transport errors and on
-    429/5xx responses (waits `backoff`, `2*backoff`, ... seconds in between).
+    429/5xx responses (waits `backoff`, `2 * backoff`, ... seconds in between).
 
     Any other HTTP error (e.g. 404) is raised immediately via `raise_for_status`.
     After the last attempt the original exception is raised.

@@ -2,6 +2,7 @@ import httpx
 import logging
 from typing import Optional, Any
 from harvester.settings import settings
+from httpx_retries import Retry, RetryTransport
 
 logger = logging.getLogger(__name__)
 
@@ -12,26 +13,37 @@ HARVEST_RUN_URL = f"{base_url}/harvest_run"
 HARVEST_EVENT_URL = f"{base_url}/harvest_event"
 
 # shared HTTP client for warehouse API
-_WAREHOUSE_CLIENT = httpx.Client(timeout=timeout)
+retry = Retry(total = 5, backoff_factor = 0.5, allowed_methods = {"POST", "PUT"})
+_WAREHOUSE_CLIENT = httpx.Client(
+    transport = RetryTransport(retry = retry),
+    timeout = timeout
+)
 
 
-def start_harvest_run(harvest_url: str) -> Optional[dict[str, Any]]:
-    """
-    POST /harvest_run to create a new harvest run. 
-    
-    :param harvest_url: endpoint for harvesting
-    :return: JSON response (dict) containing 'harvest_run_id', optionally 'last_harvest_date', and endpoint config; returns None on error.
-    """
+def start_harvest_run(harvest_url: str) -> dict[str, Any]:
     payload = {"harvest_url": harvest_url}
+
     try:
         response = _WAREHOUSE_CLIENT.post(HARVEST_RUN_URL, json=payload)
         response.raise_for_status()
-        run_info: dict[str, Any] = response.json()
-        logger.info("Started harvest run id=%s.", run_info.get("id"))
-        return run_info
-    except httpx.RequestError as e:
-        logger.error("Failed to start harvest run for %s: %s", harvest_url, e)
-        return None
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            "Warehouse API returned HTTP %s for %s: %s",
+            e.response.status_code,
+            harvest_url,
+            e.response.text,
+        )
+        raise
+    except httpx.RequestError:
+        logger.exception(
+            "Could not contact warehouse API while starting harvest for %s",
+            harvest_url,
+        )
+        raise
+
+    run_info: dict[str, Any] = response.json()
+    logger.info("Started harvest run id=%s.", run_info.get("id"))
+    return run_info
 
 def get_open_run_id(harvest_url: str) -> Optional[str]:
     """

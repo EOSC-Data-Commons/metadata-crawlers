@@ -1,12 +1,6 @@
-"""
-!! Parts of this adapter are written from EMDB's published XML schema / search
-!! documentation, NOT from a live JSON response. Everything that depends on the
-!! exact JSON layout is marked with "UNVERIFIED". Run probe_emdb.py once and
-!! adjust those spots if the real response differs.
-"""
-
 import logging, re, time
 from typing import Any, Iterator, cast
+from datetime import datetime
 
 from .core import (
     CommonRecord,
@@ -31,20 +25,12 @@ DEFAULT_BASE_URL = "https://www.ebi.ac.uk"
 SEARCH_PATH = "/emdb/api/search/{query}"
 ENTRY_PATH = "/emdb/api/entry/{emdb_id}"
 FTP_BASE = "https://ftp.ebi.ac.uk/pub/databases/emdb/structures/{emdb_id}/"
-
 PAGE_SIZE = 100
 PAGE_DELAY_SECONDS = 2
-
 SEARCH_FIELDS = "*"
-
-# try "update_date" with probe_emdb.py and switch if the server accepts it.
-INCREMENTAL_DATE_FIELD = "release_date"
-
-ASSUME_EMDB_DOI = False
-
-# admin.current_status.code values treated as "entry is gone". UNVERIFIED.
-DELETED_STATUS_CODES = {"OBS", "WTHDN"}
-
+INCREMENTAL_DATE_FIELD = "update_date"
+DELETED_STATUS_CODES = {"OBS"}
+MAX_SUBJECT_LENGTH = 100
 EMDB_ID_RE = re.compile(r"^EMD-\d+$")
 
 
@@ -86,12 +72,11 @@ def _strip_doi(doi: str | None) -> str | None:
 
 
 
-def _solr_date(value: str, end_of_day: bool = False) -> str:
-    """`2024-01-31` -> `2024-01-31T00:00:00Z` (Solr range queries want full timestamps)."""
-    value = value.strip()
-    if "T" in value:
-        return value
-    return f"{value[:10]}T{'23:59:59' if end_of_day else '00:00:00'}Z"
+def _solr_date(value: str) -> str:
+    """
+    Convert a run timestamp to the format the EMDB Solr range query accepts.
+    """
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 
@@ -127,10 +112,6 @@ def _doc_id(doc: Any) -> str | None:
 
 def extract_ids(payload: Any) -> list[str]:
     """
-    Pull the EMDB ids out of a search page. UNVERIFIED payload shape, so this
-    accepts a dict keyed by id (like the EMPIAR endpoint), a list of ids or
-    hits, or either of those under results/entries/docs/response/data/items.
-
     An empty page returns `[]`. A non-empty payload we cannot read raises, so a
     wrong assumption fails loudly instead of "successfully" harvesting nothing.
     """
@@ -198,16 +179,16 @@ def search_incremental(from_date: str, until_date: str) -> Iterator[str]:
     :param until_date: End of the range.
     """
     return _search_ids(
-        f"{INCREMENTAL_DATE_FIELD}:[{_solr_date(from_date)} TO {_solr_date(until_date, end_of_day = True)}]"
+        f"{INCREMENTAL_DATE_FIELD}:[{_solr_date(from_date)} TO {_solr_date(until_date)}]"
     )
 
 
 
 def fetch_entry(emdb_id: str) -> dict[str, Any]:
-    """Fetch the full entry JSON for one EMDB id (e.g. "EMD-1234")."""
+    """Fetch the full entry JSON for one EMDB id."""
     url = DEFAULT_BASE_URL + ENTRY_PATH.format(emdb_id = emdb_id)
     entry = get_json(_EMDB_CLIENT, url)
-    if isinstance(entry, dict) and isinstance(entry.get(emdb_id), dict):  # tolerate {"EMD-1234": {...}}
+    if isinstance(entry, dict) and isinstance(entry.get(emdb_id), dict):
         entry = entry[emdb_id]
     return cast(dict[str, Any], entry)
 
@@ -215,22 +196,43 @@ def fetch_entry(emdb_id: str) -> dict[str, Any]:
 
 def _collect_files(node: Any, role: str, out: dict[str, dict[str, Any]]) -> None:
     """
-    Walk the entry JSON and collect every object that has a `file` name
-    (map, half maps, additional maps, masks, segmentations, ...). The role is
-    the name of the nearest enclosing key, e.g. "map" or "half_map". UNVERIFIED
-    layout, so this is deliberately generic.
+    Walk the entry JSON and collect every object that has a `file` name.
     """
     if isinstance(node, dict):
         name = _s(node.get("file"))
+
         if name and name not in out:
-            out[name] = {
+            metadata = {
                 "name": name,
                 "role": role,
                 "format": _s(node.get("format")),
-                "size_kbytes": _s(node.get("size_kbytes")),
+                "size_kbytes": node.get("size_kbytes"),
+                "dimensions": node.get("dimensions"),
+                "pixel_spacing": node.get("pixel_spacing"),
+                "data_type": node.get("data_type"),
+                "statistics": node.get("statistics"),
+                "symmetry": node.get("symmetry"),
+                "cell": node.get("cell"),
+                "axis_order": node.get("axis_order"),
+                "origin": node.get("origin"),
+                "spacing": node.get("spacing"),
+                "contour_list": node.get("contour_list"),
+                "annotation_details": node.get("annotation_details"),
             }
+
+            out[name] = {
+                key: value
+                for key, value in metadata.items()
+                if value is not None
+            }
+
         for key, child in node.items():
-            _collect_files(child, key if isinstance(child, (dict, list)) else role, out)
+            _collect_files(
+                child,
+                key if isinstance(child, (dict, list)) else role,
+                out,
+            )
+
     elif isinstance(node, list):
         for child in node:
             _collect_files(child, role, out)
@@ -255,7 +257,9 @@ def emdb_files(emdb_id: str, entry: dict[str, Any]) -> dict[str, Any]:
         "size_kbytes": None,
         "url": f"{ftp_base}header/emd-{number}.xml",
     }]
-    files.extend(found.values())
+    # Primary map first (the JSON keys are alphabetical, so it would otherwise
+    # come after the half maps); the sort is stable for everything else.
+    files.extend(sorted(found.values(), key = lambda f: f["role"] != "map"))
     return {"ftp_base": ftp_base, "files": files}
 
 
@@ -274,13 +278,15 @@ def _people(authors: Any) -> list[Person]:
 def _primary_citation(entry: dict[str, Any]) -> dict[str, Any]:
     cit = ((entry.get("crossreferences") or {}).get("citation_list") or {}).get("primary_citation") or {}
     cit_type = cit.get("citation_type") or {}
-    return cit_type.get("journal_citation") or cit_type.get("non_journal_citation") or {}
+    return cit_type.get("journal_citation") or cit_type.get("non_journal_citation") or cit_type
 
 
 
 def _citation_ids(cit: dict[str, Any]) -> tuple[str | None, str | None]:
-    """Return (doi, pubmed_id) of a citation. UNVERIFIED layout; checks the
-    plain keys and the `external_references` list."""
+    """Return (doi, pubmed_id) of a citation. Checks the plain keys and the
+    `external_references` list. The list items look like
+    `{"type_": "CSD", "valueOf_": "0353"}` (verified); that the DOI / PubMed
+    ones use the type values "DOI" / "PUBMED"."""
     doi = _strip_doi(_s(cit.get("doi")))
     pubmed = _s(cit.get("pubmed"))
     for ref in _as_list(cit.get("external_references")):
@@ -310,13 +316,7 @@ def emdb_to_common(emdb_id: str, entry: dict[str, Any]) -> tuple[CommonRecord, s
     update = _s(key_dates.get("update")) or ""
 
     # IDENTIFIER (mandatory)
-    doi = _strip_doi(_s(entry.get("doi")) or _s(admin.get("doi")))
-    if not doi and ASSUME_EMDB_DOI:
-        doi = f"10.6019/{emdb_id}"
-    if doi:
-        identifier, identifier_type = doi, "DOI"
-    else:
-        identifier, identifier_type = f"https://www.ebi.ac.uk/emdb/{emdb_id}", "URL"
+    identifier, identifier_type = f"https://www.ebi.ac.uk/emdb/{emdb_id}", "URL"
 
     # CREATORS: entry authors, else the primary citation's authors
     citation = _primary_citation(entry)
@@ -339,18 +339,31 @@ def emdb_to_common(emdb_id: str, entry: dict[str, Any]) -> tuple[CommonRecord, s
     if cit_pubmed:
         related.append(RelatedIdentifier("URL", "IsDocumentedBy", f"https://pubmed.ncbi.nlm.nih.gov/{cit_pubmed}/"))
 
-    # Atomic models fitted into the map
+
+    emdb_list = (entry.get("crossreferences") or {}).get("emdb_list") or {}
+    for ref in _as_list(emdb_list.get("emdb_reference")):
+        related_id = _s(ref.get("emdb_id")) if isinstance(ref, dict) else _s(ref)
+        if related_id and related_id != emdb_id:
+            related.append(RelatedIdentifier("URL", "References", f"https://www.ebi.ac.uk/emdb/{related_id}"))
+
     pdb_list = (entry.get("crossreferences") or {}).get("pdb_list") or {}
     for ref in _as_list(pdb_list.get("pdb_reference")):
         pdb_id = _s(ref.get("pdb_id")) if isinstance(ref, dict) else _s(ref)
         if pdb_id:
             related.append(RelatedIdentifier("URL", "IsSourceOf", f"https://www.ebi.ac.uk/pdbe/entry/pdb/{pdb_id.lower()}"))
 
-    # SUBJECTS: admin keywords + structure determination methods (as the EMPIAR adapter does)
+    # KEYWORDS
     keywords = set[str]()
-    for part in (_s(admin.get("keywords")) or "").split(","):
-        if part.strip():
-            keywords.add(part.strip())
+    keywords_text = _s(admin.get("keywords")) or ""
+    has_long_keywords = False
+    for part in keywords_text.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if len(part) <= MAX_SUBJECT_LENGTH:
+            keywords.add(part)
+        else:
+            has_long_keywords = True
     sd_list = (entry.get("structure_determination_list") or {}).get("structure_determination")
     for sd in _as_list(sd_list):
         method = _s(sd.get("method")) if isinstance(sd, dict) else None
@@ -365,6 +378,8 @@ def emdb_to_common(emdb_id: str, entry: dict[str, Any]) -> tuple[CommonRecord, s
     sample_name = _s((entry.get("sample") or {}).get("name"))
     if sample_name:
         descriptions.append(Description(f"Sample: {sample_name}", "Other"))
+    if has_long_keywords:
+        descriptions.append(Description(f"Keywords: {keywords_text}", "Other"))
 
     # FUNDING REFERENCES
     funding = [
@@ -407,6 +422,7 @@ class EmdbAdapter(SourceAdapter):
     name = "EMDB"
 
     def iter_raw(self, from_date: str | None, until_date: str) -> Iterator[str]:
+        """Yield EMDB ids."""
         if not from_date:
             yield from search_all()
         else:

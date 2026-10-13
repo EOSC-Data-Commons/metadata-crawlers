@@ -13,11 +13,9 @@ class SourceAdapter(ABC):
     The work is split in two so the runner can isolate failures per record:
 
     * `iter_raw` does the listing / pagination / incremental filtering and
-      yields one lightweight item per record (whatever the repository gives
-      you: a dict, an accession, an (id, dict) tuple, ...).
+      yields one item per record.
     * `build_record` turns one raw item into a `HarvestedRecord`. This is where
       the extra per-record requests (file lists, sizes, keywords, ...) happen.
-      If it raises, only that record is counted as failed.
     """
 
     #: Short name used in log messages

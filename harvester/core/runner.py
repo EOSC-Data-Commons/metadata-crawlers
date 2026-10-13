@@ -48,9 +48,6 @@ def run_harvester(run_info: dict[str, Any], adapter: SourceAdapter) -> bool:
 
         for raw in adapter.iter_raw(from_date, until_date):
             record_count += 1
-
-            # A record that cannot be built is counted as failed, but does not
-            # stop the rest of the harvest.
             try:
                 record = adapter.build_record(raw)
                 event_payload = {
