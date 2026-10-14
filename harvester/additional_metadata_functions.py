@@ -16,21 +16,30 @@ retry_strategy = Retry(
     status_forcelist = RETRYABLE_STATUS_CODES,
     allowed_methods = {"GET"},
 )
- 
-# shared http client for metadata requests (Dataverse, HAL, DaSCH)
-_METADATA_CLIENT = httpx.Client(
-    transport = RetryTransport(retry = retry_strategy),
-    timeout = 30,
-)
+
+_METADATA_CLIENT: Optional[httpx.Client] = None
 
 logger = logging.getLogger(__name__)
 
+
+def _metadata_client() -> httpx.Client:
+    """Return the shared Metadata HTTP client, creating it if needed."""
+    global _METADATA_CLIENT
+    if _METADATA_CLIENT is None:
+        _METADATA_CLIENT = httpx.Client(transport = RetryTransport(retry = retry_strategy), timeout = 30)
+    return _METADATA_CLIENT
+
+
 def close_metadata_client() -> None:
+    global _METADATA_CLIENT
+    if _METADATA_CLIENT is None:
+        return
     try:
         _METADATA_CLIENT.close()
     except Exception:
-        logger.warning("Failed to close Metadata Client")
-        pass
+        logger.warning("Failed to close Dataverse client")
+    finally:
+        _METADATA_CLIENT = None
 
 
 def fetch_dataverse_json(doi: str, base_url: str, exporter: str | None) -> Optional[str]:
@@ -44,7 +53,7 @@ def fetch_dataverse_json(doi: str, base_url: str, exporter: str | None) -> Optio
     """
     params = {"exporter": exporter, "persistentId": doi}
     try:
-        response = _METADATA_CLIENT.get(base_url, params = params)
+        response = _metadata_client().get(base_url, params=params)
         response.raise_for_status()
         return json.dumps(response.json(), indent = 2)
     except httpx.HTTPStatusError as e:
@@ -86,7 +95,7 @@ def fetch_additional_metadata_hal(record_id: str, base_url: str) -> Optional[str
     }
 
     try:
-        response = _METADATA_CLIENT.get(base_url, params = params)
+        response = _metadata_client().get(base_url, params=params)
         response.raise_for_status()
         data = response.json()
         if not data.get("response", {}).get("docs"):
@@ -149,7 +158,7 @@ def fetch_additional_metadata_zenodo(record_id: str, base_url: str) -> Optional[
     url = f"{base_url}/{record_id}/files"
 
     try:
-        response = _METADATA_CLIENT.get(url)
+        response = _metadata_client().get(url)
         response.raise_for_status()
         return json.dumps(response.json(), indent = 2)
 
@@ -194,7 +203,7 @@ def fetch_additional_metadata_dasch(record_id: str, base_url: str) -> Optional[s
     url = f"{base_url}{short_code}/{file_id}/file"
 
     try:
-        response = _METADATA_CLIENT.get(url)
+        response = _metadata_client().get(url)
         response.raise_for_status()
         return json.dumps(response.json(), indent=2)
     except httpx.HTTPStatusError as e:
