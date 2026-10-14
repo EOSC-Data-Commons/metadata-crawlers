@@ -24,7 +24,6 @@ logger = logging.getLogger(__name__)
 DEFAULT_BASE_URL = "https://www.ebi.ac.uk"
 SEARCH_PATH = "/emdb/api/search/{query}"
 ENTRY_PATH = "/emdb/api/entry/{emdb_id}"
-FTP_BASE = "https://ftp.ebi.ac.uk/pub/databases/emdb/structures/{emdb_id}/"
 PAGE_SIZE = 100
 PAGE_DELAY_SECONDS = 2
 SEARCH_FIELDS = "*"
@@ -196,71 +195,40 @@ def fetch_entry(emdb_id: str) -> dict[str, Any]:
 
 def _collect_files(node: Any, role: str, out: dict[str, dict[str, Any]]) -> None:
     """
-    Walk the entry JSON and collect every object that has a `file` name.
+    Collect files metadata.
     """
     if isinstance(node, dict):
         name = _s(node.get("file"))
-
+ 
         if name and name not in out:
-            metadata = {
-                "name": name,
+            metadata: dict[str, Any] = {
+                "file": name,
                 "role": role,
                 "format": _s(node.get("format")),
                 "size_kbytes": node.get("size_kbytes"),
-                "dimensions": node.get("dimensions"),
-                "pixel_spacing": node.get("pixel_spacing"),
-                "data_type": node.get("data_type"),
-                "statistics": node.get("statistics"),
-                "symmetry": node.get("symmetry"),
-                "cell": node.get("cell"),
-                "axis_order": node.get("axis_order"),
-                "origin": node.get("origin"),
-                "spacing": node.get("spacing"),
-                "contour_list": node.get("contour_list"),
-                "annotation_details": node.get("annotation_details"),
+                "annotation_details": _s(node.get("annotation_details"))
             }
-
-            out[name] = {
-                key: value
-                for key, value in metadata.items()
-                if value is not None
-            }
-
+            out[name] = {key: value for key, value in metadata.items() if value is not None}
+ 
         for key, child in node.items():
-            _collect_files(
-                child,
-                key if isinstance(child, (dict, list)) else role,
-                out,
-            )
-
+            _collect_files(child, key if isinstance(child, (dict, list)) else role, out)
+ 
     elif isinstance(node, list):
         for child in node:
             _collect_files(child, role, out)
-
-
-
-def emdb_files(emdb_id: str, entry: dict[str, Any]) -> dict[str, Any]:
+ 
+ 
+ 
+def emdb_files(entry: dict[str, Any]) -> list[dict[str, Any]]:
     """
-    File metadata for one entry: the header XML plus every file named in the
-    entry JSON. `ftp_base` is the entry's directory in the EMDB archive.
+    The files named in the entry JSON, with the metadata the JSON gives for each.
     """
-    number = emdb_id.removeprefix("EMD-")
-    ftp_base = FTP_BASE.format(emdb_id = emdb_id)
-
     found: dict[str, dict[str, Any]] = {}
     _collect_files(entry, "entry", found)
-
-    files = [{
-        "name": f"emd-{number}.xml",
-        "role": "header",
-        "format": "XML",
-        "size_kbytes": None,
-        "url": f"{ftp_base}header/emd-{number}.xml",
-    }]
+ 
     # Primary map first (the JSON keys are alphabetical, so it would otherwise
     # come after the half maps); the sort is stable for everything else.
-    files.extend(sorted(found.values(), key = lambda f: f["role"] != "map"))
-    return {"ftp_base": ftp_base, "files": files}
+    return sorted(found.values(), key = lambda f: f["role"] != "map")
 
 
 
@@ -437,7 +405,7 @@ class EmdbAdapter(SourceAdapter):
             record_id = emdb_id,
             datestamp = datestamp,
             metadata = metadata,
-            additional_metadata = emdb_files(emdb_id, entry),
+            additional_metadata = emdb_files(entry),
             is_deleted = is_deleted,
         )
 
