@@ -14,7 +14,11 @@ def _client() -> httpx.Client:
     """Return the shared warehouse HTTP client, creating it if needed."""
     global _WAREHOUSE_CLIENT
     if _WAREHOUSE_CLIENT is None:
-        _WAREHOUSE_CLIENT = httpx.Client(timeout=current_settings().WAREHOUSE_API_TIMEOUT)
+        retry = Retry(total = 3, backoff_factor = 0.5, allowed_methods = {"GET", "POST", "PUT"})
+        _WAREHOUSE_CLIENT = httpx.Client(
+            transport = RetryTransport(retry = retry),
+            timeout = current_settings().WAREHOUSE_API_TIMEOUT
+        )
     return _WAREHOUSE_CLIENT
 
 
