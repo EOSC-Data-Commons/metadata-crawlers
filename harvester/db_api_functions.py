@@ -1,6 +1,7 @@
 import httpx
 import logging
 from typing import Optional, Any
+from httpx_retries import Retry, RetryTransport
 from harvester.settings import current_settings
 
 logger = logging.getLogger(__name__)
@@ -13,7 +14,11 @@ def _client() -> httpx.Client:
     """Return the shared warehouse HTTP client, creating it if needed."""
     global _WAREHOUSE_CLIENT
     if _WAREHOUSE_CLIENT is None:
-        _WAREHOUSE_CLIENT = httpx.Client(timeout=current_settings().WAREHOUSE_API_TIMEOUT)
+        retry = Retry(total = 3, backoff_factor = 0.5, allowed_methods = {"GET", "POST", "PUT"})
+        _WAREHOUSE_CLIENT = httpx.Client(
+            transport = RetryTransport(retry = retry),
+            timeout = current_settings().WAREHOUSE_API_TIMEOUT
+        )
     return _WAREHOUSE_CLIENT
 
 
@@ -30,15 +35,28 @@ def start_harvest_run(harvest_url: str) -> Optional[dict[str, Any]]:
     :return: JSON response (dict) containing 'harvest_run_id', optionally 'last_harvest_date', and endpoint config; returns None on error.
     """
     payload = {"harvest_url": harvest_url}
+
     try:
         response = _client().post(_warehouse_url("harvest_run"), json=payload)
         response.raise_for_status()
-        run_info: dict[str, Any] = response.json()
-        logger.info("Started harvest run id=%s.", run_info.get("id"))
-        return run_info
-    except httpx.RequestError as e:
-        logger.error("Failed to start harvest run for %s: %s", harvest_url, e)
-        return None
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            "Warehouse API returned HTTP %s for %s: %s",
+            e.response.status_code,
+            harvest_url,
+            e.response.text,
+        )
+        raise
+    except httpx.RequestError:
+        logger.exception(
+            "Could not contact warehouse API while starting harvest for %s",
+            harvest_url,
+        )
+        raise
+
+    run_info: dict[str, Any] = response.json()
+    logger.info("Started harvest run id=%s.", run_info.get("id"))
+    return run_info
 
 def get_open_run_id(harvest_url: str) -> Optional[str]:
     """
