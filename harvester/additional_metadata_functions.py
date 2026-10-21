@@ -2,7 +2,7 @@ import httpx
 import json
 import logging
 import os
-from typing import Optional
+from typing import Any, Optional
 from oaipmh_scythe import Scythe
 from lxml import etree as ET
 from httpx_retries import Retry, RetryTransport
@@ -233,7 +233,7 @@ def fetch_additional_metadata_dasch(record_id: str, base_url: str) -> Optional[s
 CERN_FILE_FIELDS = ("filename", "size", "checksum", "uri")
 
 
-def _slim_cern_file(file_entry: dict) -> dict:
+def _slim_cern_file(file_entry: dict) -> dict[str, Any]:
     """Keep only the important fields of a CERN file entry."""
     return {field: file_entry.get(field) for field in CERN_FILE_FIELDS}
 
