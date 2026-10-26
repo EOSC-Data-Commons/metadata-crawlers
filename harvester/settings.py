@@ -13,6 +13,8 @@ class HarvesterSettings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     WAREHOUSE_API_TIMEOUT: int = 30
 
+    USER_AGENT_ADDRESS: str | None = ""
+
     class Config:
         env_file = ".env"
         case_sensitive = True

@@ -13,21 +13,18 @@ from .additional_metadata_functions import fetch_dataverse_json, fetch_additiona
     fetch_additional_metadata_zenodo, fetch_additional_metadata_dasch, fetch_additional_metadata_cern
 from .db_api_functions import send_harvest_event
 from .zenodo_functions import resolve_zenodo_dois
-
-from dotenv import load_dotenv
-load_dotenv()
+from harvester.settings import current_settings
 
 logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-user_agent_address = os.getenv("USER_AGENT_ADDRESS") or None
-USER_AGENT = f"metadata-crawlers/1 {user_agent_address}"
+user_agent_address = (current_settings().USER_AGENT_ADDRESS or "").strip()
 
-http_config = HTTPConfig(
-    timeout = 180,
-    user_agent = USER_AGENT
-)
+if user_agent_address:
+    http_config = HTTPConfig(timeout = 180, user_agent = f"metadata-crawlers/1 {user_agent_address}")
+else:
+    http_config = HTTPConfig(timeout = 180)
 
 def apply_xslt_transform(xml: str, transform: ET.XSLT) -> str | None:
     """

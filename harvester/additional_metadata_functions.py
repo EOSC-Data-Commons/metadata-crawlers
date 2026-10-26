@@ -6,9 +6,7 @@ from typing import Any, Optional
 from oaipmh_scythe import Scythe
 from lxml import etree as ET
 from httpx_retries import Retry, RetryTransport
-
-from dotenv import load_dotenv
-load_dotenv()
+from harvester.settings import current_settings
 
 # Status codes worth retrying on: rate limiting + transient server errors
 RETRYABLE_STATUS_CODES = {422, 429, 500, 502, 503, 504}
@@ -24,14 +22,23 @@ _METADATA_CLIENT: Optional[httpx.Client] = None
 
 logger = logging.getLogger(__name__)
 
-user_agent_address = os.getenv("USER_AGENT_ADDRESS") or None
-USER_AGENT = f"metadata-crawlers/1 {user_agent_address}"
+user_agent_address = (current_settings().USER_AGENT_ADDRESS or "").strip()
 
 def _metadata_client() -> httpx.Client:
     """Return the shared Metadata HTTP client, creating it if needed."""
     global _METADATA_CLIENT
     if _METADATA_CLIENT is None:
-        _METADATA_CLIENT = httpx.Client(transport = RetryTransport(retry = retry_strategy), timeout = 30, headers = {"User-Agent": USER_AGENT})
+        if user_agent_address:
+            _METADATA_CLIENT = httpx.Client(
+                transport = RetryTransport(retry = retry_strategy),
+                timeout = 30,
+                headers = {"User-Agent": f"metadata-crawlers/1 {user_agent_address}"},
+            )
+        else:
+            _METADATA_CLIENT = httpx.Client(
+                transport = RetryTransport(retry = retry_strategy),
+                timeout = 30,
+            )
     return _METADATA_CLIENT
 
 
@@ -257,6 +264,8 @@ def fetch_additional_metadata_cern(record_id: str, base_url: str) -> Optional[st
 
     # Example: "https://opendata.cern.ch/api/records/87706"
     url = f"{base_url.rstrip('/')}/{cern_id}"
+
+    # logger.info(user_agent_address)
 
     try:
         response = _metadata_client().get(url, timeout = 60)
