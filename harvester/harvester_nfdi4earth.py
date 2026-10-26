@@ -49,6 +49,9 @@ MAX_CONCURRENT_REQUESTS = 10
 # other concurrent task while it waits on I/O.
 SEND_EVENT_TIMEOUT = 60
 
+# DataCite <publisher> value for records without a repository (n4e:inCatalog)
+PUBLISHER_FALLBACK = "unknown"
+
 
 async def shutdown_async_client() -> None:
     """Close the shared async HTTP client."""
@@ -89,9 +92,10 @@ PREFIX dcat: <http://www.w3.org/ns/dcat#>
 PREFIX schema: <http://schema.org/>
 PREFIX dct: <http://purl.org/dc/terms/>
 PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX n4e: <http://nfdi4earth.de/ontology/>
 
 SELECT ?dataset ?title ?authors ?description ?landingpage ?download_urls
-       ?startDate ?endDate ?publishers ?issued ?licenses ?keywords
+       ?startDate ?endDate ?issued ?licenses ?keywords
 WHERE {
   BIND(<@DATASET_IRI@> AS ?dataset)
 
@@ -139,31 +143,6 @@ WHERE {
   }
 
   OPTIONAL {
-    SELECT (GROUP_CONCAT(DISTINCT ?pubLabel; separator=", ") AS ?publishers)
-    WHERE {
-      BIND(<@DATASET_IRI@> AS ?dataset)
-      ?dataset dct:publisher ?pub .
-
-      OPTIONAL {
-        ?pub foaf:name ?foafName .
-      }
-
-      OPTIONAL {
-        ?pub schema:name ?schemaName .
-      }
-
-      BIND(
-        IF(
-          isBlank(?pub),
-          COALESCE(?foafName, ?schemaName),
-          STR(?pub)
-        )
-        AS ?pubLabel
-      )
-    }
-  }
-
-  OPTIONAL {
     SELECT (GROUP_CONCAT(DISTINCT ?lic; separator=", ") AS ?licenses)
     WHERE {
       BIND(<@DATASET_IRI@> AS ?dataset)
@@ -178,6 +157,23 @@ WHERE {
       ?dataset dcat:keyword ?kw .
     }
   }
+
+}
+"""
+
+
+
+# Plain (no subselect) query for the repository of a dataset (n4e:inCatalog).
+# Returns one row per repository title
+REPOSITORY_QUERY = """
+PREFIX dct: <http://purl.org/dc/terms/>
+PREFIX n4e: <http://nfdi4earth.de/ontology/>
+
+SELECT ?iri ?value ?lang
+WHERE {
+  <@DATASET_IRI@> n4e:inCatalog ?iri .
+  ?iri dct:title ?value .
+  BIND(LANG(?value) AS ?lang)
 }
 """
 
@@ -269,7 +265,41 @@ async def fetch_dataset_detail(dataset_iri: str) -> dict[str, Any] | None:
         response["results"]["bindings"],
     )
 
-    return bindings[0] if bindings else None
+    if not bindings:
+        return None
+
+    record = bindings[0]
+    repository = await fetch_dataset_repository(dataset_iri)
+    if repository:
+        record["repository"] = {"type": "literal", "value": repository}
+    return record
+
+
+
+async def fetch_dataset_repository(dataset_iri: str) -> str | None:
+    """
+    Fetch the repository title of one dataset (n4e:inCatalog -> dct:title).
+
+    Prefers an English title; if a dataset has several repositories, the
+    first one returned is used. Returns None when the endpoint has no
+    repository for the dataset.
+    """
+    query = REPOSITORY_QUERY.replace("@DATASET_IRI@", dataset_iri)
+    response = await execute_query(query, context=f"repository dataset={dataset_iri}")
+    rows = cast(list[dict[str, Any]], response["results"]["bindings"])
+
+    best: dict[str, tuple[str, bool]] = {}
+    for row in rows:
+        value = binding_value(row, "value")
+        key = binding_value(row, "iri") or value
+        if not value or not key:
+            continue
+        is_en = binding_value(row, "lang") == "en"
+        current = best.get(key)
+        if current is None or (is_en and not current[1]):
+            best[key] = (value, is_en)
+
+    return next(iter(best.values()))[0] if best else None
 
 
 
@@ -380,6 +410,16 @@ def extract_doi(url: str | None) -> str | None:
 
 
 
+def build_publisher_name(record: dict[str, Any]) -> str:
+    """
+    Build the DataCite publisher string: the repository name from
+    n4e:inCatalog (first one if there are several), else PUBLISHER_FALLBACK.
+    """
+    repository = (binding_value(record, "repository") or "").strip()
+    return repository or PUBLISHER_FALLBACK
+
+
+
 DATASET_IRI_PREFIX = "https://cordra.knowledgehub.nfdi4earth.de/objects/"
 async def nfdi4earth_data_to_datacite(record: dict[str, Any]) -> tuple[str, str | None]:
     """
@@ -400,7 +440,6 @@ async def nfdi4earth_data_to_datacite(record: dict[str, Any]) -> tuple[str, str 
     download_urls_raw = binding_value(record, "download_urls")
     start_date = binding_value(record, "startDate")
     end_date = binding_value(record, "endDate")
-    publishers_raw = binding_value(record, "publishers")
     issued = binding_value(record, "issued")
     licenses_raw = binding_value(record, "licenses")
     keywords_raw = binding_value(record, "keywords")
@@ -463,10 +502,8 @@ async def nfdi4earth_data_to_datacite(record: dict[str, Any]) -> tuple[str, str 
     titles = ET.SubElement(resource, "titles")
     ET.SubElement(titles, "title").text = title
 
-    # PUBLISHER (mandatory) - raw value from SPARQL, no external resolution
-    publisher_list = split_list(publishers_raw, sep=",")
-    publisher_el = ET.SubElement(resource, "publisher")
-    publisher_el.text = publisher_list[0] if publisher_list else "unknown"
+    # PUBLISHER (mandatory) - "NFDI4Earth | <repository>"
+    ET.SubElement(resource, "publisher").text = build_publisher_name(record)
 
     # PUBLICATION YEAR (mandatory)
     if issued:
