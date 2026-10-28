@@ -1,14 +1,15 @@
 import httpx
 import json
 import logging
-from typing import Optional
+import os
+from typing import Any, Optional
 from oaipmh_scythe import Scythe
 from lxml import etree as ET
 from httpx_retries import Retry, RetryTransport
-
+from harvester.settings import current_settings
 
 # Status codes worth retrying on: rate limiting + transient server errors
-RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+RETRYABLE_STATUS_CODES = {422, 429, 500, 502, 503, 504}
  
 retry_strategy = Retry(
     total = 8,
@@ -21,12 +22,23 @@ _METADATA_CLIENT: Optional[httpx.Client] = None
 
 logger = logging.getLogger(__name__)
 
+user_agent_address = (current_settings().USER_AGENT_ADDRESS or "").strip()
 
 def _metadata_client() -> httpx.Client:
     """Return the shared Metadata HTTP client, creating it if needed."""
     global _METADATA_CLIENT
     if _METADATA_CLIENT is None:
-        _METADATA_CLIENT = httpx.Client(transport = RetryTransport(retry = retry_strategy), timeout = 30)
+        if user_agent_address:
+            _METADATA_CLIENT = httpx.Client(
+                transport = RetryTransport(retry = retry_strategy),
+                timeout = 30,
+                headers = {"User-Agent": f"metadata-crawlers/1 {user_agent_address}"},
+            )
+        else:
+            _METADATA_CLIENT = httpx.Client(
+                transport = RetryTransport(retry = retry_strategy),
+                timeout = 30,
+            )
     return _METADATA_CLIENT
 
 
@@ -220,4 +232,89 @@ def fetch_additional_metadata_dasch(record_id: str, base_url: str) -> Optional[s
         logger.error(
             "Network error fetching DaSCH file metadata for %s: %s", record_id, e
         )
+        return None
+
+
+# Fields kept for every file, regardless of where the record stores it
+CERN_FILE_FIELDS = ("size", "checksum", "uri", "version_id")
+
+
+def _slim_cern_file(file_entry: dict[str, Any]) -> dict[str, Any]:
+    """Keep only the important fields of a CERN file entry."""
+    return {
+        # "_files" entries only have "key"; index entries have a real "filename"
+        "filename": file_entry.get("filename") or file_entry.get("key"),
+        **{field: file_entry.get(field) for field in CERN_FILE_FIELDS}
+    }
+
+
+def fetch_additional_metadata_cern(record_id: str, base_url: str) -> Optional[str]:
+    """
+    Fetch file-level metadata from the CERN Open Data REST API.
+
+    Files are collected from the record's "_files" list and from the "files"
+    of every entry in "_file_indices". Both can be populated at the same time
+    (e.g. data files in an index plus an auxiliary file list in "_files").
+    Every file is reduced to the same fields (filename, size, checksum, uri,
+    version_id) plus an "origin" tag.
+
+    :param record_id: CERN OAI-PMH identifier, e.g. "oai:cernopendata.cern:87706"
+    :param base_url: CERN records API endpoint, e.g. "https://opendata.cern.ch/api/records"
+    :return: stringified JSON list of file metadata; returns None if the record
+             has no files or on error
+    """
+    # CERN OAI identifiers come in the form "oai:cernopendata.cern:87706".
+    # We need only the numeric part at the end for API calls.
+    cern_id = record_id.rsplit(":", 1)[-1]
+
+    # Example: "https://opendata.cern.ch/api/records/87706"
+    url = f"{base_url.rstrip('/')}/{cern_id}"
+
+    try:
+        response = _metadata_client().get(url, timeout = 60)
+        response.raise_for_status()
+        data = response.json()
+        metadata = data.get("metadata") if isinstance(data, dict) else None
+
+        if not isinstance(metadata, dict):
+            logger.warning("No CERN metadata object found for %s", record_id)
+            return None
+
+        slim_files = [
+            _slim_cern_file(f)
+            for f in metadata.get("_files") or []
+            if isinstance(f, dict)
+        ]
+        for file_index in metadata.get("_file_indices") or []:
+            if isinstance(file_index, dict):
+                slim_files.extend(
+                    _slim_cern_file(f)
+                    for f in file_index.get("files") or []
+                    if isinstance(f, dict)
+                )
+
+        if not slim_files:
+            logger.warning("No CERN file metadata found for %s", record_id)
+            return None
+
+        return json.dumps(slim_files, indent = 2)
+
+    except httpx.HTTPStatusError as e:
+        logger.warning(
+            "Failed to fetch CERN metadata for %s: HTTP %s",
+            record_id,
+            e.response.status_code,
+        )
+        return None
+
+    except httpx.RequestError as e:
+        logger.error(
+            "Network error fetching CERN metadata for %s: %s",
+            record_id,
+            e,
+        )
+        return None
+
+    except ValueError as e:
+        logger.warning("Invalid CERN metadata for %s: %s", record_id, e)
         return None
