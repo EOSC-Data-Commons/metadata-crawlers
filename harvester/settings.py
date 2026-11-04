@@ -1,11 +1,18 @@
 from typing import Literal
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 import os
 
 Environment = Literal["production", "staging", "dev", "local"]
 
 
 class HarvesterSettings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file = ".env",
+        case_sensitive = True,
+        # tolerate unrelated keys in a host project's .env when used as a library
+        extra = "ignore"
+    )
+
     ENVIRONMENT: Environment = "dev"
     WAREHOUSE_API_URL: str
 
@@ -13,11 +20,7 @@ class HarvesterSettings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     WAREHOUSE_API_TIMEOUT: int = 30
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
-        # tolerate unrelated keys in a host project's .env when used as a library
-        extra = "ignore"
+    USER_AGENT_ADDRESS: str | None = ""
 
 class ProductionSettings(HarvesterSettings):
     """Production settings"""

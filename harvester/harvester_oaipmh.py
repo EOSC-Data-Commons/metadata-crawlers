@@ -2,7 +2,7 @@ import logging, os, time
 
 from datetime import datetime
 from lxml import etree as ET
-from oaipmh_scythe import Scythe, OAIResponse
+from oaipmh_scythe import Scythe, OAIResponse, HTTPConfig
 from collections.abc import Iterable, Iterator
 from typing import Any
 
@@ -10,13 +10,21 @@ from oaipmh_scythe.models import Record
 from oaipmh_scythe.exceptions import NoRecordsMatch
 
 from .additional_metadata_functions import fetch_dataverse_json, fetch_additional_oai, fetch_additional_metadata_hal, \
-    fetch_additional_metadata_zenodo, fetch_additional_metadata_dasch
+    fetch_additional_metadata_zenodo, fetch_additional_metadata_dasch, fetch_additional_metadata_cern
 from .db_api_functions import send_harvest_event
 from .zenodo_functions import resolve_zenodo_dois
+from harvester.settings import current_settings
 
 logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+user_agent_address = (current_settings().USER_AGENT_ADDRESS or "").strip()
+
+if user_agent_address:
+    http_config = HTTPConfig(timeout = 180, user_agent = f"metadata-crawlers/1 {user_agent_address}")
+else:
+    http_config = HTTPConfig(timeout = 180)
 
 def apply_xslt_transform(xml: str, transform: ET.XSLT) -> str | None:
     """
@@ -88,7 +96,7 @@ def transformation_and_additional_metadata(raw_metadata: str | None,
                     logger.warning("Skipping record %s: transformation to DataCite failed.", identifier)
                     return None, None
 
-        elif additional_protocol == "DATAVERSE_API": # DANS
+        if additional_protocol == "DATAVERSE_API": # DANS
             additional_metadata = fetch_dataverse_json(
                 doi = identifier,
                 base_url = additional_endpoint,
@@ -119,6 +127,11 @@ def transformation_and_additional_metadata(raw_metadata: str | None,
         
         elif additional_protocol == "DASCH_API": # DASCH
             additional_metadata = fetch_additional_metadata_dasch(
+                record_id = identifier,
+                base_url = additional_endpoint
+            )
+        elif additional_protocol == "CERN_API": # CERN
+            additional_metadata = fetch_additional_metadata_cern(
                 record_id = identifier,
                 base_url = additional_endpoint
             )
@@ -377,11 +390,11 @@ def run_harvester_oaipmh(run_info: dict[str, Any]) -> bool:
             raise ValueError("Missing name of repository")
     
         need_timeout = False
-        if repository_name in ["ALBA", "Riga Stradins University", "CLARIN-IV", "Zenodo"]:
+        if repository_name in ["ALBA", "Riga Stradins University", "CLARIN-IV", "Zenodo", "CERN"]:
             need_timeout = True
 
         # harvesting
-        with Scythe(harvest_url, timeout = 180, max_retries = 3, default_retry_after = 60) as client:
+        with Scythe(harvest_url, http_config = http_config, max_retries = 3, default_retry_after = 60) as client:
 
             if individual_ids: # currently only used for HAL-Zenodo
                 resolved_ids = resolve_zenodo_dois(individual_ids)
