@@ -240,12 +240,13 @@ CERN_FILE_FIELDS = ("size", "checksum", "uri", "version_id")
 
 
 def _slim_cern_file(file_entry: dict[str, Any]) -> dict[str, Any]:
-    """Keep only the important fields of a CERN file entry."""
-    return {
+    """Keep only the important fields of a CERN file entry, omitting missing ones."""
+    slim = {
         # "_files" entries only have "key"; index entries have a real "filename"
         "filename": file_entry.get("filename") or file_entry.get("key"),
-        **{field: file_entry.get(field) for field in CERN_FILE_FIELDS}
+        **{field: file_entry.get(field) for field in CERN_FILE_FIELDS},
     }
+    return {k: v for k, v in slim.items() if v is not None}
 
 
 def fetch_additional_metadata_cern(record_id: str, base_url: str) -> Optional[str]:
