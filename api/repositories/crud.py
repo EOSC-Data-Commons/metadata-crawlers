@@ -70,7 +70,9 @@ async def find_repository_id(client: httpx.AsyncClient, repository_code: str) ->
     return next((r["id"] for r in await list_repositories(client) if r["code"] == repository_code), None)
 
 
-async def insert_repository(client: httpx.AsyncClient, code: str, name: str) -> dict:
+async def insert_repository(
+    client: httpx.AsyncClient, code: str, name: str, description: str | None, base_url: str | None,
+) -> dict:
     """
     Creates a new repository so endpoints can be attached to it.
 
@@ -78,11 +80,18 @@ async def insert_repository(client: httpx.AsyncClient, code: str, name: str) -> 
         client: warehouse API client.
         code: unique short code.
         name: human-readable repository name.
+        description: free-text description of the repository.
+        base_url: URL of the repository's own website (not the OAI-PMH endpoint).
 
     Returns:
         The created repository as a dict.
     """
-    return await request_json(client, "POST", "/repositories", json = {"code": code, "name": name})
+    return await request_json(client, "POST", "/repositories", json = {
+        "code": code,
+        "name": name,
+        "description": description,
+        "base_url": base_url,
+    })
 
 
 async def list_endpoints(client: httpx.AsyncClient, state: str = "all") -> list[dict]:
@@ -135,7 +144,8 @@ async def get_endpoint(client: httpx.AsyncClient, endpoint_id: int) -> dict | No
 
 async def insert_endpoint(
     client: httpx.AsyncClient, repository_id: int, name: str, harvest_url: str, scientific_discipline: str,
-    is_active: bool | None, metadata_prefix: str | None, harvest_interval_days: int, description: str,
+    is_active: bool | None, metadata_prefix: str | None, sets: list[str] | None, harvest_interval_days: int,
+    description: str,
 ) -> dict:
     """
     Creates a new OAI-PMH endpoint in the warehouse.
@@ -148,12 +158,19 @@ async def insert_endpoint(
         scientific_discipline: discipline label.
         is_active: None = waiting for review, True = approved, False = failed.
         metadata_prefix: metadata prefix selected by the submitter or auto-detected, or None.
+        sets: OAI-PMH sets selected by the submitter, or None to harvest the whole repository.
         harvest_interval_days: harvest schedule in days.
         description: validation result or failure reason.
 
     Returns:
         The created endpoint as a dict.
     """
+    # harvest_params mirrors the warehouse's HarvestParams model: only metadata_prefix is
+    # required there. "set" is stored only when the submitter selected sets, and
+    # additional_metadata_params has no submitter-facing option, so it is never set here.
+    harvest_params: dict = {"metadata_prefix": metadata_prefix or ""}
+    if sets:
+        harvest_params["set"] = sets
     return await request_json(client, "POST", "/endpoints", json = {
         "repository_id": repository_id,
         "name": name,
@@ -161,8 +178,7 @@ async def insert_endpoint(
         "protocol": "OAI-PMH",
         "scientific_discipline": scientific_discipline,
         "is_active": is_active,
-        # same shape as the warehouse's HarvestParams model: all three keys are required there
-        "harvest_params": {"metadata_prefix": metadata_prefix or "", "set": None, "additional_metadata_params": None},
+        "harvest_params": harvest_params,
         "harvest_interval_days": harvest_interval_days,
         "description": description,
     })

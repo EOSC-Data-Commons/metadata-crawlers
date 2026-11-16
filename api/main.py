@@ -45,19 +45,24 @@ app = FastAPI(
             "description": (
                 "Top-level containers that OAI-PMH endpoints are attached to. "
                 "Create these first: a repository's unique short code is required when submitting an endpoint. "
-                "Creating repositories is admin-only; admins and submitters can list them."
+                "A free-text `description` and the repository's own website URL (`base_url`, "
+                "not the OAI-PMH endpoint) can be given as well."
             ),
         },
         {
             "name": "Metadata prefixes",
             "description": (
-                "Find out which metadata formats a repository offers and which of them we can "
-                "harvest, before submitting an endpoint. We cover `oai_datacite`, `oai_datacite4` "
-                "and `datacite` (DataCite), `oai_dc` (Dublin Core) and `oai_ddi25` (DDI). "
+                "Find out which metadata formats and sets a repository offers and which of them "
+                "we can harvest, before submitting an endpoint. We cover `oai_datacite`, "
+                "`oai_datacite4` and `datacite` (DataCite), `oai_dc` (Dublin Core) and "
+                "`oai_ddi25` (DDI); we recommend them in that order (DataCite first), but the "
+                "choice is the submitter's, passed as `metadata_prefix` when submitting the endpoint. "
                 "Records are validated against the format family of the selected prefix, so "
                 "schema versions do not matter (any DataCite kernel or DDI 2.x version is fine) - "
                 "but records served in a different format than the selected one (e.g. Dublin Core "
-                "records under a `datacite` prefix) fail validation."
+                "records under a `datacite` prefix) fail validation. The repository's OAI-PMH "
+                "sets are listed too, so the ones to harvest can be passed as repeated `set` "
+                "parameters when submitting the endpoint."
             ),
         },
         {
@@ -67,10 +72,12 @@ app = FastAPI(
                 "GET /endpoints/metadata-formats first to see which metadata prefixes the "
                 "repository offers, then pass the one you want harvested as `metadata_prefix` "
                 "(we cover `oai_datacite`, `oai_datacite4`, `datacite`, `oai_dc` and `oai_ddi25`; "
-                "if you omit it, the best supported one is picked automatically). The endpoint is "
-                "probed end to end (all six OAI-PMH verbs, sample records in the selected format, "
-                "incremental harvesting, resumption-token paging) before it is stored: it lands as "
-                "waiting (`is_active` NULL) if the probe passed, or failed (`FALSE`) if it did not."
+                "if you omit it, the best supported one is picked automatically). To harvest only "
+                "certain sets, pass them as repeated `set` parameters; leave `set` out to harvest "
+                "everything. The endpoint is probed end to end (all six OAI-PMH verbs, sample "
+                "records in the selected format, incremental harvesting, resumption-token paging) "
+                "before it is stored: it lands as waiting (`is_active` NULL) if the probe passed, "
+                "or failed (`FALSE`) if it did not."
             ),
         },
         {

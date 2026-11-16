@@ -3,12 +3,12 @@
 from typing import Literal
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import HttpUrl
 
 from auth import get_current_user, require_role
 from oaipmh.formats import SUPPORTED_PREFIXES, is_supported_prefix
-from oaipmh.probe import ProbeFailure, inspect_repository, probe_oaipmh
+from oaipmh.probe import ProbeFailure, inspect_repository, list_repository_sets, probe_oaipmh
 from warehouse import get_client
 from repositories.crud import (
     count_endpoints, find_by_harvest_url, find_repository_id, get_endpoint, insert_endpoint,
@@ -34,13 +34,21 @@ def is_active_after_validation(passed: bool, current_is_active: bool | None = No
 
 
 @router.post("/repositories", status_code = 201, tags = ["Repositories"])  # LOCAL TEST: auth disabled - restore: dependencies = [Depends(require_role("admin", "submitter"))]
-async def create_repository(code: str, name: str, client: httpx.AsyncClient = Depends(get_client)):
+async def create_repository(
+    code: str,
+    name: str,
+    description: str | None = None,
+    base_url: HttpUrl | None = None,
+    client: httpx.AsyncClient = Depends(get_client),
+):
     """
     Creates a new repository that endpoints can then be attached to.
 
     Args:
         code: unique short code.
         name: human-readable repository name.
+        description: free-text description of the repository.
+        base_url: URL of the repository's own website (its home page, NOT the OAI-PMH endpoint).
         client: warehouse API client.
 
     Returns:
@@ -48,7 +56,7 @@ async def create_repository(code: str, name: str, client: httpx.AsyncClient = De
     """
     if await find_repository_id(client, code) is not None:
         raise HTTPException(status_code = 409, detail = f"Repository code '{code}' already exists")
-    return await insert_repository(client, code, name)
+    return await insert_repository(client, code, name, description, str(base_url) if base_url else None)
 
 
 @router.get("/repositories", tags = ["Repositories"])  # LOCAL TEST: auth disabled - restore: dependencies = [Depends(require_role("admin", "submitter"))]
@@ -68,20 +76,21 @@ async def show_repositories(client: httpx.AsyncClient = Depends(get_client)):
 @router.get("/endpoints/metadata-formats", tags = ["Metadata prefixes"])  # LOCAL TEST: auth disabled - restore: dependencies = [Depends(require_role("admin", "submitter"))]
 async def show_metadata_formats(base_url: HttpUrl):
     """
-    Shows the metadata formats a repository offers, so submitters can select a metadata_prefix
-    before submitting an endpoint with POST /endpoints.
+    Shows the metadata formats and sets a repository offers, so submitters can choose a
+    metadata_prefix (and the sets to harvest) before submitting an endpoint with POST /endpoints.
 
-    Prefixes we cover: oai_datacite, oai_datacite4 and datacite (DataCite), oai_dc (Dublin Core)
-    and oai_ddi25 (DDI). Every offered format is marked as supported or not, and
-    recommended_prefix is the first offered format we support in preference order (DataCite
-    before Dublin Core before DDI). Schema versions do not matter within a family.
+    Every offered format is marked as supported or not. We recommend the supported prefixes in
+    the order of "supported_prefixes" (DataCite first: oai_datacite, oai_datacite4, datacite,
+    then Dublin Core, then DDI), but the choice is the submitter's: pass it as metadata_prefix
+    to POST /endpoints. Schema versions do not matter within a family.
 
     Args:
         base_url: OAI-PMH base URL of the candidate endpoint.
 
     Returns:
-        dict with "repo_name", "supported_prefixes" (prefix -> format family), "offered_formats"
-        (metadata_prefix, metadata_namespace, supported flag) and "recommended_prefix".
+        dict with "repo_name", "supported_prefixes" (prefix -> format family, in preference
+        order), "offered_formats" (metadata_prefix, metadata_namespace, supported flag) and
+        "offered_sets" (set_spec, set_name; empty when the repository has no sets).
     """
     try:
         info = await inspect_repository(normalize_url(str(base_url)))
@@ -96,7 +105,7 @@ async def show_metadata_formats(base_url: HttpUrl):
         "repo_name": info["repo_name"],
         "supported_prefixes": SUPPORTED_PREFIXES,
         "offered_formats": offered_formats,
-        "recommended_prefix": next((fmt["metadata_prefix"] for fmt in offered_formats if fmt["supported"]), None),
+        "offered_sets": info["offered_sets"],
     }
 
 
@@ -107,6 +116,7 @@ async def submit_endpoint(
     name: str | None = None,
     scientific_discipline: str = "Multidisciplinary",
     metadata_prefix: str | None = None,
+    set_: list[str] | None = Query(default = None, alias = "set"),
     harvest_interval_days: int = 7,
     client: httpx.AsyncClient = Depends(get_client),
 ):
@@ -123,6 +133,10 @@ async def submit_endpoint(
             of them we support. Must be one of oai_datacite, oai_datacite4, datacite, oai_dc,
             oai_ddi25; omit to auto-detect the best supported one. Sample records must really be
             in the selected format (any schema version is fine, e.g. any DataCite kernel version).
+        set_: OAI-PMH sets to harvest, selected by the submitter (repeat the parameter for
+            several sets, e.g. ?set=entityType:Record&set=entityType:Dataset). Call GET
+            /endpoints/metadata-formats first to see the repository's sets; omit to harvest the
+            whole repository.
         harvest_interval_days: harvest schedule in days.
         client: warehouse API client.
 
@@ -145,12 +159,30 @@ async def submit_endpoint(
     if await find_by_harvest_url(client, harvest_url) is not None:
         raise HTTPException(status_code = 409, detail = "This endpoint already exists")
 
+    # Sets are optional: they are validated against the repository's own sets and stored only
+    # when the submitter picked at least one (otherwise the whole repository is harvested).
+    selected_sets = [s for s in (set_ or []) if s.strip()] or None
+    if selected_sets:
+        try:
+            offered_specs = {s["set_spec"] for s in await list_repository_sets(harvest_url)}
+        except ProbeFailure as failure:
+            raise HTTPException(status_code = 502, detail = f"Repository check failed: {failure}")
+        unknown_sets = [s for s in selected_sets if s not in offered_specs]
+        if unknown_sets:
+            raise HTTPException(
+                status_code = 422,
+                detail = (
+                    f"Unknown set(s) {unknown_sets}. "
+                    f"This repository offers: {sorted(offered_specs) if offered_specs else 'no sets'}."
+                ),
+            )
+
     result = await probe_oaipmh(harvest_url, metadata_prefix)
     try:
         return await insert_endpoint(
             client, repository_id, name or result["repo_name"] or harvest_url, harvest_url,
             scientific_discipline, is_active_after_validation(result["passed"]),
-            result["metadata_prefix"], harvest_interval_days, result["message"],
+            result["metadata_prefix"], selected_sets, harvest_interval_days, result["message"],
         )
     except httpx.HTTPStatusError as error:
         # e.g. 409 from the warehouse when the endpoint name already exists

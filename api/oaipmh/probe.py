@@ -23,6 +23,8 @@ from oaipmh.formats import (
 
 MAX_SAMPLE_RECORDS = 3
 INCREMENTAL_WINDOW_DAYS = 30
+# Safety net for repositories that keep returning a resumptionToken on ListSets.
+MAX_SET_PAGES = 100
 
 
 class ProbeFailure(Exception):
@@ -239,21 +241,84 @@ async def fetch_repository_formats(client: httpx.AsyncClient, base_url: str) -> 
     }
 
 
+async def fetch_repository_sets(client: httpx.AsyncClient, base_url: str) -> list[dict]:
+    """
+    Lists the sets a repository offers (ListSets), so submitters can pick the ones to harvest.
+
+    Follows resumption tokens so large set lists are complete, up to MAX_SET_PAGES pages.
+
+    Args:
+        client: shared httpx client.
+        base_url: OAI-PMH endpoint URL.
+
+    Returns:
+        list of dicts with "set_spec" and "set_name"; empty when the repository has no sets
+        (noSetHierarchy).
+
+    Raises:
+        ProbeFailure: when ListSets fails.
+    """
+    sets: list[dict] = []
+    token = ""
+    for _ in range(MAX_SET_PAGES):
+        if token:
+            page = await fetch_verb(client, base_url, "ListSets", ("noSetHierarchy",), resumptionToken = token)
+        else:
+            page = await fetch_verb(client, base_url, "ListSets", ("noSetHierarchy",))
+        if page is None:  # noSetHierarchy: the repository has no sets at all
+            return []
+        sets.extend(
+            {"set_spec": s.findtext(f"{OAI_NS}setSpec"), "set_name": s.findtext(f"{OAI_NS}setName")}
+            for s in page.findall(f".//{OAI_NS}set")
+        )
+        token = (page.findtext(f".//{OAI_NS}resumptionToken") or "").strip()
+        if not token:  # a missing or empty resumptionToken marks the last page
+            return sets
+    return sets
+
+
 async def inspect_repository(base_url: str) -> dict:
     """
-    Connects to a repository and reports its name and the metadata formats it offers.
+    Connects to a repository and reports its name, the metadata formats it offers and its sets.
 
     Args:
         base_url: OAI-PMH endpoint URL.
 
     Returns:
-        dict as returned by fetch_repository_formats.
+        dict with "repo_name", "offered_formats" (metadata_prefix, metadata_namespace) and
+        "offered_sets" (set_spec, set_name); "offered_sets" is empty when the repository has no
+        sets or does not answer ListSets.
 
     Raises:
-        ProbeFailure: when the repository cannot be reached or does not answer these two verbs.
+        ProbeFailure: when the repository cannot be reached or does not answer Identify or
+            ListMetadataFormats.
     """
     async with httpx.AsyncClient(timeout = 15, follow_redirects = True) as client:
-        return await fetch_repository_formats(client, base_url)
+        info = await fetch_repository_formats(client, base_url)
+        try:
+            info["offered_sets"] = await fetch_repository_sets(client, base_url)
+        except ProbeFailure:
+            # Sets are optional information for submitters: a repository whose ListSets fails
+            # here still shows its formats (the full probe rejects it later anyway).
+            info["offered_sets"] = []
+        return info
+
+
+async def list_repository_sets(base_url: str) -> list[dict]:
+    """
+    Connects to a repository and lists its sets; used to check a submitter's set selection.
+
+    Args:
+        base_url: OAI-PMH endpoint URL.
+
+    Returns:
+        list of dicts with "set_spec" and "set_name"; empty when the repository has no sets.
+
+    Raises:
+        ProbeFailure: when the repository cannot be reached or does not answer ListSets.
+    """
+    async with httpx.AsyncClient(timeout = 15, follow_redirects = True) as client:
+        return await fetch_repository_sets(client, base_url)
 
 
 async def probe_oaipmh(base_url: str, required_prefix: str | None = None) -> dict:
