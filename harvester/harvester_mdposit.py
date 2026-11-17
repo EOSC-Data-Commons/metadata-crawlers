@@ -381,7 +381,7 @@ def fetch_project_filenotes(base_api_url: str, accession: str, headers: dict[str
 
 
 
-def entry_to_dict(entry) -> dict[str, Any]:
+def entry_to_dict(entry: Any) -> dict[str, Any]:
     """Convert a datahugger entry into a plain dict using whatever fields it exposes."""
     return {
         name: getattr(entry, name)
