@@ -1,0 +1,205 @@
+{
+    "$schema": "http://json-schema.org/schema#",
+    "type": "object",
+    "properties": {
+        "url": {
+            "type": "string",
+            "pattern": "^https?://"
+        },
+        "titles": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string"
+                    },
+                    "lang": {
+                        "type": "string",
+                        "pattern": "^[a-z]{2}$"
+                    },
+                    "titleType": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "title"
+                ],
+                "additionalProperties": false
+            }
+        },
+        "subjects": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "subject": {
+                        "type": "string"
+                    },
+                    "lang": {
+                        "type": "string",
+                        "pattern": "^[a-z]{2}$"
+                    },
+                    "subjectScheme": {
+                        "type": "string"
+                    },
+                    "schemaUri": {
+                        "type": "string"
+                    },
+                    "valueUri": {
+                        "type": "string"
+                    },
+                    "classificationCode": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "subject"
+                ],
+                "additionalProperties": false
+            }
+        },
+        "creators": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "creatorName": {
+                        "type": "string"
+                    },
+                    "nameType": {
+                        "type": "string"
+                    },
+                    "nameIdentifiers": {
+                        "type": "array",
+                        "properties": {
+                            "nameIdentifierScheme": {
+                                "type": "string"
+                            },
+                            "nameIdentifier": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "givenName": {
+                        "type": "string"
+                    },
+                    "familyName": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "creatorName"
+                ],
+                "additionalProperties": false
+            }
+        },
+        "alternateIdentifiers": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "alternateIdentifier": {
+                        "type": "string"
+                    },
+                    "alternateIdentifierType": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "alternateIdentifier"
+                ],
+                "additionalProperties": false
+            }
+        },
+        "publicationYear": {
+            "type": "string",
+            "pattern": "^[0-9]{4}$"
+        },
+        "descriptions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "description": {
+                        "type": "string"
+                    },
+                    "descriptionType": {
+                        "type": "string"
+                    },
+                    "lang": {
+                        "type": "string",
+                        "pattern": "^[a-z]{2}$"
+                    }
+                },
+                "required": [
+                    "description",
+                    "descriptionType"
+                ],
+                "additionalProperties": false
+            }
+        },
+        "dates": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "date": {
+                        "type": "string",
+                        "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+                    },
+                    "dateType": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "date",
+                    "dateType"
+                ],
+                "additionalProperties": false
+            }
+        },
+        "types": {
+            "type": "object",
+            "properties": {
+                "resourceType": {
+                    "type": "string"
+                },
+                "resourceTypeGeneral": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "resourceTypeGeneral"
+            ],
+            "additionalProperties": false
+        },
+        "formats": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        },
+        "rightsList": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "rights": {
+                        "type": "string"
+                    },
+                    "rightsUri": {
+                        "type": "string"
+                    }
+                }
+            },
+            "additionalProperties": false
+        }
+    },
+    "required": [
+        "creators",
+        "titles",
+        "url"
+    ],
+    "additionalProperties": false
+}
