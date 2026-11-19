@@ -235,40 +235,16 @@ def fetch_additional_metadata_dasch(record_id: str, base_url: str) -> Optional[s
         return None
 
 
-# Fields kept for every file, regardless of where the record stores it
-CERN_FILE_FIELDS = ("size", "checksum", "uri", "version_id")
-
-
-def _slim_cern_file(file_entry: dict[str, Any]) -> dict[str, Any]:
-    """Keep only the important fields of a CERN file entry, omitting missing ones."""
-    slim = {
-        # "_files" entries only have "key"; index entries have a real "filename"
-        "filename": file_entry.get("filename") or file_entry.get("key"),
-        **{field: file_entry.get(field) for field in CERN_FILE_FIELDS},
-    }
-    return {k: v for k, v in slim.items() if v is not None}
-
-
 def fetch_additional_metadata_cern(record_id: str, base_url: str) -> Optional[str]:
     """
-    Fetch file-level metadata from the CERN Open Data REST API.
-
-    Files are collected from the record's "_files" list and from the "files"
-    of every entry in "_file_indices". Both can be populated at the same time
-    (e.g. data files in an index plus an auxiliary file list in "_files").
-    Every file is reduced to the same fields (filename, size, checksum, uri,
-    version_id) plus an "origin" tag.
+    Fetch the full "metadata" object for a file metadata CERN Open Data record, unmodified.
 
     :param record_id: CERN OAI-PMH identifier, e.g. "oai:cernopendata.cern:87706"
     :param base_url: CERN records API endpoint, e.g. "https://opendata.cern.ch/api/records"
-    :return: stringified JSON list of file metadata; returns None if the record
-             has no files or on error
+    :return: stringified JSON of the record's "metadata" field; None on error
+             or if the record has no metadata object
     """
-    # CERN OAI identifiers come in the form "oai:cernopendata.cern:87706".
-    # We need only the numeric part at the end for API calls.
     cern_id = record_id.rsplit(":", 1)[-1]
-
-    # Example: "https://opendata.cern.ch/api/records/87706"
     url = f"{base_url.rstrip('/')}/{cern_id}"
 
     try:
@@ -281,24 +257,7 @@ def fetch_additional_metadata_cern(record_id: str, base_url: str) -> Optional[st
             logger.warning("No CERN metadata object found for %s", record_id)
             return None
 
-        slim_files = [
-            _slim_cern_file(f)
-            for f in metadata.get("_files") or []
-            if isinstance(f, dict)
-        ]
-        for file_index in metadata.get("_file_indices") or []:
-            if isinstance(file_index, dict):
-                slim_files.extend(
-                    _slim_cern_file(f)
-                    for f in file_index.get("files") or []
-                    if isinstance(f, dict)
-                )
-
-        if not slim_files:
-            logger.warning("No CERN file metadata found for %s", record_id)
-            return None
-
-        return json.dumps(slim_files, indent = 2)
+        return json.dumps(metadata, indent = 2)
 
     except httpx.HTTPStatusError as e:
         logger.warning(
