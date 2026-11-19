@@ -1,0 +1,456 @@
+{
+    "$schema": "http://json-schema.org/schema#",
+    "type": "object",
+    "definitions": {
+        "i18n": {
+            "type": "object",
+            "additionalProperties": {
+                "type": "string"
+            }
+        },
+        "vocabTerm": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "title": {
+                    "$ref": "#/definitions/i18n"
+                }
+            },
+            "additionalProperties": false
+        },
+        "identifier": {
+            "type": "object",
+            "properties": {
+                "identifier": {
+                    "type": "string"
+                },
+                "scheme": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "identifier"
+            ],
+            "additionalProperties": false
+        },
+        "personOrOrg": {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "family_name": {
+                    "type": "string"
+                },
+                "given_name": {
+                    "type": "string"
+                },
+                "identifiers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/identifier"
+                    }
+                }
+            },
+            "required": [
+                "name"
+            ],
+            "additionalProperties": false
+        },
+        "affiliation": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "identifiers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/identifier"
+                    }
+                }
+            },
+            "additionalProperties": false
+        }
+    },
+    "properties": {
+        "resource_type": {
+            "$ref": "#/definitions/vocabTerm"
+        },
+        "creators": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "person_or_org": {
+                        "$ref": "#/definitions/personOrOrg"
+                    },
+                    "affiliations": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/definitions/affiliation"
+                        }
+                    },
+                    "role": {
+                        "$ref": "#/definitions/vocabTerm"
+                    }
+                },
+                "required": [
+                    "person_or_org"
+                ],
+                "additionalProperties": false
+            }
+        },
+        "title": {
+            "type": "string"
+        },
+        "publisher": {
+            "type": "string"
+        },
+        "publication_date": {
+            "type": "string"
+        },
+        "subjects": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "subject": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "scheme": {
+                        "type": "string"
+                    },
+                    "props": {
+                        "type": "object",
+                        "properties": {
+                            "parents": {
+                                "type": "string"
+                            },
+                            "groups": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            },
+                            "themes": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            },
+                            "hierarchy": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            },
+                            "definition": {
+                                "type": "string"
+                            }
+                        },
+                        "additionalProperties": false
+                    },
+                    "identifiers": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/definitions/identifier"
+                        }
+                    }
+                },
+                "additionalProperties": false
+            }
+        },
+        "rights": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "title": {
+                        "$ref": "#/definitions/i18n"
+                    },
+                    "description": {
+                        "$ref": "#/definitions/i18n"
+                    },
+                    "icon": {
+                        "type": "string"
+                    },
+                    "props": {
+                        "type": "object",
+                        "properties": {
+                            "url": {
+                                "type": "string"
+                            },
+                            "scheme": {
+                                "type": "string"
+                            }
+                        },
+                        "additionalProperties": false
+                    },
+                    "link": {
+                        "type": "string"
+                    }
+                },
+                "additionalProperties": false
+            }
+        },
+        "description": {
+            "type": "string"
+        },
+        "references": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "reference": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "reference"
+                ],
+                "additionalProperties": false
+            }
+        },
+        "languages": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "title": {
+                        "$ref": "#/definitions/i18n"
+                    }
+                },
+                "additionalProperties": false
+            }
+        },
+        "related_identifiers": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "identifier": {
+                        "type": "string"
+                    },
+                    "scheme": {
+                        "type": "string"
+                    },
+                    "relation_type": {
+                        "$ref": "#/definitions/vocabTerm"
+                    },
+                    "resource_type": {
+                        "$ref": "#/definitions/vocabTerm"
+                    }
+                },
+                "required": [
+                    "identifier"
+                ],
+                "additionalProperties": false
+            }
+        },
+        "funding": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "funder": {
+                        "type": "object",
+                        "properties": {
+                            "id": {
+                                "type": "string"
+                            },
+                            "name": {
+                                "type": "string"
+                            }
+                        },
+                        "additionalProperties": false
+                    },
+                    "award": {
+                        "type": "object",
+                        "properties": {
+                            "id": {
+                                "type": "string"
+                            },
+                            "number": {
+                                "type": "string"
+                            },
+                            "title": {
+                                "$ref": "#/definitions/i18n"
+                            },
+                            "identifiers": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/definitions/identifier"
+                                }
+                            },
+                            "acronym": {
+                                "type": "string"
+                            },
+                            "program": {
+                                "type": "string"
+                            }
+                        },
+                        "additionalProperties": false
+                    }
+                },
+                "additionalProperties": false
+            }
+        },
+        "additional_descriptions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "description": {
+                        "type": "string"
+                    },
+                    "type": {
+                        "$ref": "#/definitions/vocabTerm"
+                    },
+                    "lang": {
+                        "$ref": "#/definitions/vocabTerm"
+                    }
+                },
+                "required": [
+                    "description"
+                ],
+                "additionalProperties": false
+            }
+        },
+        "contributors": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "person_or_org": {
+                        "$ref": "#/definitions/personOrOrg"
+                    },
+                    "role": {
+                        "$ref": "#/definitions/vocabTerm"
+                    },
+                    "affiliations": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/definitions/affiliation"
+                        }
+                    }
+                },
+                "required": [
+                    "person_or_org"
+                ],
+                "additionalProperties": false
+            }
+        },
+        "version": {
+            "type": "string"
+        },
+        "identifiers": {
+            "type": "array",
+            "items": {
+                "$ref": "#/definitions/identifier"
+            }
+        },
+        "dates": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "date": {
+                        "type": "string"
+                    },
+                    "type": {
+                        "$ref": "#/definitions/vocabTerm"
+                    },
+                    "description": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "date"
+                ],
+                "additionalProperties": false
+            }
+        },
+        "additional_titles": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string"
+                    },
+                    "type": {
+                        "$ref": "#/definitions/vocabTerm"
+                    },
+                    "lang": {
+                        "$ref": "#/definitions/vocabTerm"
+                    }
+                },
+                "required": [
+                    "title"
+                ],
+                "additionalProperties": false
+            }
+        },
+        "locations": {
+            "type": "object",
+            "properties": {
+                "features": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "place": {
+                                "type": "string"
+                            },
+                            "description": {
+                                "type": "string"
+                            },
+                            "geometry": {
+                                "type": "object",
+                                "properties": {
+                                    "coordinates": {
+                                        "type": "array"
+                                    },
+                                    "type": {
+                                        "type": "string"
+                                    }
+                                },
+                                "additionalProperties": false
+                            }
+                        },
+                        "additionalProperties": false
+                    }
+                }
+            },
+            "additionalProperties": false
+        },
+        "copyright": {
+            "type": "string"
+        }
+    },
+    "required": [
+        "resource_type",
+        "creators",
+        "title",
+        "publication_date"
+    ],
+    "additionalProperties": false
+}
