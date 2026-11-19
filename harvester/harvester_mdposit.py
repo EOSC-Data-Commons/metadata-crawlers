@@ -134,9 +134,7 @@ def fetch_incremental_projects_data(base_api_url: str, from_date: str, headers: 
         overwhelming the API.
     """
     
-    query = {"updateDate": {"$gt": from_date}}
-    query_str = json.dumps(query)
-    params : dict[str, str | int] = {"limit": 0, "page": 1, "query": query_str}
+    params : dict[str, str | int] = {"limit": 0, "page": 1, "filter": f"updateDate=gt={from_date}"}
     
     # inital request just to see how many filtered projects there are
     response = _MDPOSIT_CLIENT.get(
@@ -154,7 +152,7 @@ def fetch_incremental_projects_data(base_api_url: str, from_date: str, headers: 
     projects : list[dict[str, Any]] = []
     page = 1
     while len(projects) < number_of_filtered_objects:
-        params_filtered : dict[str, str | int] = {"limit": 100, "page": page, "query": query_str}
+        params_filtered : dict[str, str | int] = {"limit": 100, "page": page, "filter": f"updateDate=gt={from_date}"}
         response = _MDPOSIT_CLIENT.get(
             f"{base_api_url}/projects",
             headers = headers,
@@ -359,6 +357,29 @@ def mdposit_data_to_datacite(project: dict[str, Any]) -> tuple[str, str, str]:
 
 
 
+def fetch_project_filenotes(base_api_url: str, accession: str, headers: dict[str, str]) -> list[dict[str, Any]]:
+    """
+    Retrieve per-file metadata for a single MDposit project.
+
+    Args:
+        base_api_url: Base URL of the MDposit API.
+        accession: Project accession (e.g. "MD-A001U9").
+        headers: HTTP headers to include in the request.
+
+    Returns:
+        List of file-note dictionaries exactly as returned by the API.
+    """
+    response = _MDPOSIT_CLIENT.get(
+        f"{base_api_url}/projects/{accession}/filenotes",
+        headers = headers,
+        timeout = 30,
+        follow_redirects = True,
+    )
+    response.raise_for_status()
+    return cast(list[dict[str, Any]], response.json())
+
+
+
 def run_harvester_mdposit(run_info: dict[str, Any]) -> bool:
     """
     Depending on the supplied configuration, performs either a full
@@ -390,7 +411,8 @@ def run_harvester_mdposit(run_info: dict[str, Any]) -> bool:
         if config is None:
             raise ValueError("config is missing")
         harvest_url = config.get("harvest_url")
-        from_date: str | None = run_info.get("from_date")
+        # from_date: str | None = run_info.get("from_date")
+        from_date = "2026-11-01T00:00:00Z"
         headers = {"Accept": "application/json"}
 
         if not from_date:
@@ -399,7 +421,9 @@ def run_harvester_mdposit(run_info: dict[str, Any]) -> bool:
             mdposit_data_projects = fetch_incremental_projects_data(harvest_url, from_date, headers)
         for project in mdposit_data_projects:
             mdposit_xml, identifier, datestamp = mdposit_data_to_datacite(project)
-            additional_file_metadata = ", ".join(project.get("files", []))
+            filenotes = fetch_project_filenotes(harvest_url, project["accession"], headers)
+            additional_file_metadata = json.dumps(filenotes)
+            time.sleep(1)
 
             event_payload = {
                 "record_identifier": identifier,
