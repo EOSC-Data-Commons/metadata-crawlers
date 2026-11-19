@@ -41,8 +41,7 @@ logger = logging.getLogger(__name__)
 def build_catalog(rest_uri, s3_endpoint, access_key, secret_key, name="remote"):
     """Build a pyiceberg REST catalog.
 
-    Catalog metadata is served by the REST server at ``rest_uri``; table files
-    live on the S3 endpoint and are read and written through fsspec/s3fs.
+    Catalog metadata is served by the REST server at ``rest_uri``.
 
     Args:
         rest_uri (str): URL of the Iceberg REST catalog server.
@@ -60,9 +59,8 @@ def build_catalog(rest_uri, s3_endpoint, access_key, secret_key, name="remote"):
         "s3.endpoint": s3_endpoint,
         "s3.access-key-id": access_key,
         "s3.secret-access-key": secret_key,
-        "rest.client.max-retries": 5,
-        "rest.client.connection-timeout-ms": 30000,
-        "py-io-impl": "pyiceberg.io.fsspec.FsspecFileIO",
+        "rest.client.max-retries": 6,
+        "rest.client.connection-timeout-ms": 60000,
     }
     return load_catalog(name, **props)
 

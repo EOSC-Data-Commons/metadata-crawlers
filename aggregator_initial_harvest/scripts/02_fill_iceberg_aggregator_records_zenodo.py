@@ -105,7 +105,9 @@ def main():
         require_env("S3_ACCESS_KEY"),
         require_env("S3_SECRET_KEY"),
         require_env("S3_ENDPOINT"),
-        max_pool_connections=args.workers,
+        # The pool should accomodate a bit more than the workers
+        # due to shutting down not being immediate
+        max_pool_connections=args.workers + 4,
     )
 
     logger.info("Source: s3://%s/%s", args.bucket, args.prefix)
