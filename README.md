@@ -186,12 +186,20 @@ The `aggregator_initial_harvest` module contains scripts to setup an initial har
 of Zenodo metadata from the metadata dump they provide.  
 Specific script info is detailed in the [module README](aggregator_initial_harvest/README.md).  
 
-The scripts can be ran with these commands (piping output to log files included):
+The scripts can be ran with these commands:
 
 ```sh
 uv run python aggregator_initial_harvest/scripts/01_zenodo_dump_to_s3.py --bucket <bucket> --cleanup-local-dump yes
 uv run python aggregator_initial_harvest/scripts/02_fill_iceberg_aggregator_records_zenodo.py --bucket <bucket> --namespace <namespace>
 uv run python aggregator_initial_harvest/scripts/03_fill_iceberg_records_to_harvest_zenodo.py --bucket <bucket> --namespace <namespace>
+```
+
+For runnning with actual values, the expected bucket is "zenodo-metadata-dump" and namespace is "harvest-iceberg":
+
+```sh
+uv run python aggregator_initial_harvest/scripts/01_zenodo_dump_to_s3.py --bucket zenodo-metadata-dump --cleanup-local-dump yes
+uv run python aggregator_initial_harvest/scripts/02_fill_iceberg_aggregator_records_zenodo.py --bucket zenodo-metadata-dump --namespace harvest-iceberg
+uv run python aggregator_initial_harvest/scripts/03_fill_iceberg_records_to_harvest_zenodo.py --bucket zenodo-metadata-dump> --namespace harvest-iceberg
 ```
 
 The scripts will make the following changes:
