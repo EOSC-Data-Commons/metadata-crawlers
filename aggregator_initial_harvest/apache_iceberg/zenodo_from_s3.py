@@ -59,6 +59,12 @@ def build_catalog(rest_uri, s3_endpoint, access_key, secret_key, name="remote"):
         "s3.endpoint": s3_endpoint,
         "s3.access-key-id": access_key,
         "s3.secret-access-key": secret_key,
+        # Explicit region: without it, pyiceberg tries to auto-detect the
+        # bucket's region by asking real AWS S3, which fails (and logs
+        # "Unable to resolve region for bucket ...") for a bucket that only
+        # exists on our private S3 endpoint. us-east-1 is also what pyarrow
+        # falls back to when no region is given.
+        "s3.region": "us-east-1",
         "rest.client.max-retries": 6,
         "rest.client.connection-timeout-ms": 60000,
     }

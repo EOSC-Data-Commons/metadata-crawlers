@@ -3,8 +3,8 @@
 # The Zenodo download takes ~13 GB on disk! The file is needed for streaming records
 # to S3, after which it can be deleted. The download can last a few minutes.
 
-# Uploading is done in parallel with multiple workers - can take multiple hours locally
-# to process all records!
+# Uploading is done in parallel with multiple workers (--workers, default 16) -
+# can take multiple hours locally to process all records!
 
 # --bucket Mandatory! S3 bucket to upload the dump to.
 # --local-file defines the filepath of the .tar.gz to download. Start at project root.
@@ -15,7 +15,7 @@ import argparse
 import logging
 import os
 import tarfile
-import threading
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -81,6 +81,12 @@ def parse_args() -> argparse.Namespace:
         default="no",
         help="yes/no: delete the local dump after a successful upload",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=16,
+        help="Parallel S3 uploads (default: %(default)s)",
+    )
     return parser.parse_args()
 
 
@@ -104,7 +110,7 @@ def main():
     LOCAL_FILE = args.local_file
 
     # Stream to s3 in parallel
-    WORKERS = 16
+    WORKERS = args.workers
 
     # Headers identifying us as the requester
     requester_email = os.environ.get("REQUESTER_EMAIL")
@@ -183,31 +189,37 @@ def main():
         raise RuntimeError(f"checksum mismatch: {actual_md5} != {EXPECTED_MD5}")
     logger.info("Download complete and verified.")
 
-    # Setup threading pool to upload to s3 in parallel
-
-    slots = threading.BoundedSemaphore(WORKERS * 4)
+    # Upload to s3 in parallel. Same futures-based pattern as the fill scripts:
+    # the main thread reads the (sequential) tar stream and keeps at most
+    # 2 * WORKERS uploads in flight -- one record each in memory -- waiting
+    # on the oldest future before queueing more.
     stats = UploadStats()
+    lookahead = 2 * WORKERS
 
     logger.info("Starting upload to S3.")
 
-    with ThreadPoolExecutor(WORKERS) as pool:
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
         with tarfile.open(LOCAL_FILE, mode="r|gz") as tar:
+            fifo_queue = deque()
             for member in tar:
                 if not member.isfile():
                     logger.debug("Skipping non-file archive member: %s", member.name)
                     continue
                 data = tar.extractfile(member).read()
-                slots.acquire()
-                pool.submit(
-                    upload, s3_client, BUCKET, PREFIX + member.name, data, stats, slots
+                if len(fifo_queue) >= lookahead:
+                    # upload() never raises, this only waits for the oldest
+                    # upload to finish so memory stays bounded
+                    fifo_queue.popleft().result()
+                fifo_queue.append(
+                    pool.submit(
+                        upload, s3_client, BUCKET, PREFIX + member.name, data, stats
+                    )
                 )
+            # Wait for the uploads still in flight
+            while fifo_queue:
+                fifo_queue.popleft().result()
 
-    logger.info("Done: %d uploaded, %d failed", stats.uploaded, len(stats.errors))
-
-    # Write down any errors and the files they occurred at in a log
-    log_name = BUCKET + "_errors.log"
-
-    stats.log_errors(log_name)
+    logger.info("Done: %d uploaded, %d failed", stats.uploaded, stats.failed)
 
     # Optionally: if indicated, delete the local dump file to free up space
     if args.cleanup_local_dump == "yes":

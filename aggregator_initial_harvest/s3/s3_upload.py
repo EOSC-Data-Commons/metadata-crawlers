@@ -17,18 +17,17 @@ class UploadStats:
     A class to keep tally of successful and unsuccesful uploads.
 
     Worker threads call ``ok()`` and ``fail()``; the main thread reads the
-    totals and can write the failures to a log file with ``log_errors()``.
+    totals at the end of the run.
 
     Attributes:
         uploaded (int): Number of objects uploaded successfully.
-        errors (list[tuple[str, Exception]]): ``(key, exception)`` pairs for
-            record id, error message for every failed upload.
+        failed (int): Number of objects that failed to upload.
     """
 
     def __init__(self):
         self.lock = threading.Lock()
         self.uploaded = 0
-        self.errors = []
+        self.failed = 0
 
     def ok(self):
         """Count a record as successfully uploaded"""
@@ -38,26 +37,10 @@ class UploadStats:
         if n % 10000 == 0:
             logger.info("%d files uploaded", n)
 
-    def fail(self, key, exc):
-        """Log an error and what record it occured on"""
+    def fail(self):
+        """Count a record as failed to upload"""
         with self.lock:
-            self.errors.append((key, exc))
-
-    def log_errors(self, file):
-        """
-        Log all errors into a single file.
-
-        After the upload is complete, this allows for an easy overview of potential errors.
-        """
-        with self.lock:
-            errors = list(self.errors)  # snapshot so it can't change mid-write
-        with open(file, "w", encoding="utf-8") as f:
-            for key, exc in errors:
-                msg = " ".join(
-                    str(exc).split()
-                )  # collapse newlines so each error is one line
-                f.write(f"{key} - {msg}\n")
-        logger.info("wrote %d errors to %s", len(errors), file)
+            self.failed += 1
 
 
 def connect_to_s3(
@@ -180,13 +163,12 @@ def upload(
     key: str,
     data: bytes,
     stats: UploadStats,
-    slots: threading.BoundedSemaphore,
 ) -> None:
     """Upload one object to S3 and record the outcome.
 
-    Can be run in a worker thread. It never raises exceptions: success or failure is
-    recorded on the ``stats`` object, and the ``slots`` semaphore is always released so
-    the loop can keep going.
+    Can be run in a worker thread. It never raises exceptions: failures are
+    logged with the full error message and traceback and counted on the
+    ``stats`` object.
 
     Args:
         s3_client: boto3 S3 client, shared across workers.
@@ -194,9 +176,7 @@ def upload(
         key (str): Object key to write, e.g. ``"zenodo_dump/1003105.json"``.
         data (bytes): Full object content read into memory.
         stats (UploadStats): Results tally ; ``ok()`` is called on
-            success and ``fail(key, exc)`` on any exception.
-        slots (threading.BoundedSemaphore): Semaphore acquired
-            by the caller before submitting this task; released at the end.
+            success and ``fail()`` on any exception.
 
     Returns:
         None
@@ -205,9 +185,9 @@ def upload(
         s3_client.put_object(Bucket=bucket, Key=key, Body=data)
         stats.ok()
     except Exception as e:
-        stats.fail(key, e)
-    finally:
-        slots.release()
+        logger.exception("failed to upload %s: %s", key, e)
+        stats.fail()
+
 
 def iter_s3_keys(s3, bucket, prefix, suffix=".json", start_after=""):
     """Lazily yield object keys under bucket/prefix, in alphabetical order."""
