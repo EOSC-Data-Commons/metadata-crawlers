@@ -3,7 +3,6 @@ from datetime import datetime
 from .db_api_functions import send_harvest_event
 from xml.dom import minidom
 from typing import Any, cast
-from datahugger import MdpositJsonSrcDataset
 
 logger = logging.getLogger(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -381,16 +380,6 @@ def fetch_project_filenotes(base_api_url: str, accession: str, headers: dict[str
 
 
 
-def entry_to_dict(entry: Any) -> dict[str, Any]:
-    """Convert a datahugger entry into a plain dict using whatever fields it exposes."""
-    return {
-        name: getattr(entry, name)
-        for name in dir(entry)
-        if not name.startswith("_") and not callable(getattr(entry, name))
-    }
-
-
-
 def run_harvester_mdposit(run_info: dict[str, Any]) -> bool:
     """
     Depending on the supplied configuration, performs either a full
@@ -422,7 +411,8 @@ def run_harvester_mdposit(run_info: dict[str, Any]) -> bool:
         if config is None:
             raise ValueError("config is missing")
         harvest_url = config.get("harvest_url")
-        from_date: str | None = run_info.get("from_date")
+        # from_date: str | None = run_info.get("from_date")
+        from_date = "2026-11-01T00:00:00Z"
         headers = {"Accept": "application/json"}
 
         if not from_date:
@@ -433,9 +423,6 @@ def run_harvester_mdposit(run_info: dict[str, Any]) -> bool:
             mdposit_xml, identifier, datestamp = mdposit_data_to_datacite(project)
             filenotes = fetch_project_filenotes(harvest_url, project["accession"], headers)
             additional_file_metadata = json.dumps(filenotes)
-            dataset = MdpositJsonSrcDataset(project["accession"], json.dumps(filenotes))
-            files = [entry_to_dict(e) for e in dataset.crawl_file()]
-            additional_file_metadata = json.dumps(files, default = str)
             time.sleep(1)
 
             event_payload = {
