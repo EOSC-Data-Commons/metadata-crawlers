@@ -180,6 +180,38 @@ Logs are saved to:
 
 When running in Docker, this log directory can be mounted as a volume to persist logs outside the container.
 
+## Aggregator initial harvest - Zenodo  
+
+The `aggregator_initial_harvest` module contains scripts to setup an initial harvest
+of Zenodo metadata from the metadata dump they provide.  
+Specific script info is detailed in the [module README](aggregator_initial_harvest/README.md).  
+
+The scripts can be ran with these commands (piping output to log files included):
+
+```sh
+uv run python aggregator_initial_harvest/scripts/01_zenodo_dump_to_s3.py --bucket <bucket> --cleanup-local-dump yes
+uv run python aggregator_initial_harvest/scripts/02_fill_iceberg_aggregator_records_zenodo.py --bucket <bucket> --namespace <namespace>
+uv run python aggregator_initial_harvest/scripts/03_fill_iceberg_records_to_harvest_zenodo.py --bucket <bucket> --namespace <namespace>
+```
+
+The scripts will make the following changes:
+* Create <bucket> on S3 if not already present. Fill it with the contents of the latest Zenodo metadata dump 
+    ([obtained from their API](https://developers.zenodo.org/#metadata-dumps))
+* Create the Iceberg <namespace> if not present
+* Drop the <namespace>.aggregator_records table and fill it with all records in S3
+* Drop the <namespace>.records_to_harvest table and fill it with filtered records (only resource_type 
+    = "dataset"). These records include Datacite JSON and Additional_metadata JSON needed for harvest_events
+
+TODO: A separate script that pushes Iceberg table rows as harvest events, like the regular harvester works for OAI-PMH.
+
+### Scripts configuration
+
+Besides the `.env` values used by the harvester, these scripts read:
+
+- `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_ENDPOINT` -- S3 credentials for the dump bucket
+- `ICEBERG_REST_CATALOG` -- URL of the Iceberg REST catalog server
+- `REQUESTER_EMAIL` -- e-mail identifying the requester in the Zenodo User-Agent header
+
 ## Future Extensions
 
 Future versions of this package will support additional crawling protocols.
