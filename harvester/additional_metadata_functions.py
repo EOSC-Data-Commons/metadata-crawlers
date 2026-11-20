@@ -122,6 +122,9 @@ def fetch_additional_oai(record_id: str, base_url: str, metadata_prefix: str) ->
     """
     try:
         with Scythe(base_url) as client:
+            # see harvester_oaipmh.py: override Scythe's default Accept header, some
+            # repositories do strict content negotiation and reject it with HTTP 406
+            client.client.headers.update({"Accept": "*/*"})
             record = client.get_record(identifier = record_id, metadata_prefix = metadata_prefix)
             return ET.tostring(record.xml, pretty_print=True, encoding="unicode")
     except Exception as e:

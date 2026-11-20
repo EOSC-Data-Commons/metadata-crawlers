@@ -383,6 +383,15 @@ def run_harvester_oaipmh(run_info: dict[str, Any]) -> bool:
         # harvesting
         with Scythe(harvest_url, timeout = 180, max_retries = 3, default_retry_after = 60) as client:
 
+            # Some repositories (e.g. gaia.aip.de) do strict HTTP content negotiation and answer
+            # Scythe's default Accept header ("text/xml; charset=utf-8, application/xml; charset=utf-8")
+            # with 406 Not Acceptable and a non-XML body. oaipmh_scythe 0.16.0 then crashes inside
+            # raise_for_oaipmh_error() with AttributeError: 'NoneType' object has no attribute 'find'
+            # before its own raise_for_status() could report the 406. Sending "*/*" (what plain
+            # httpx/requests send) is accepted by every OAI-PMH server, including the strict ones.
+            client.client.headers.update({"Accept": "*/*"})
+            client.client.follow_redirects = True
+
             if individual_ids: # currently only used for HAL-Zenodo
                 resolved_ids = resolve_zenodo_dois(individual_ids)
                 record_iter = fetch_records_by_id(client, resolved_ids, metadata_prefix, repository_name)
