@@ -68,7 +68,46 @@ def build_catalog(rest_uri, s3_endpoint, access_key, secret_key, name="remote"):
         "rest.client.max-retries": 6,
         "rest.client.connection-timeout-ms": 60000,
     }
-    return load_catalog(name, **props)
+    catalog = load_catalog(name, **props)
+    # The properties above are not honored by pyiceberg 0.12 -- it sends
+    # every catalog request without a timeout, so a hung server (accepts
+    # the connection, never responds) blocks the client forever, with no
+    # error that append_with_retry could catch and retry. Wrapping the
+    # session turns such hangs into ReadTimeout/ConnectTimeout errors.
+    _set_session_timeouts(catalog, connect_timeout=30, read_timeout=300)
+    return catalog
+
+
+def _set_session_timeouts(catalog, connect_timeout, read_timeout):
+    """Give every catalog HTTP request a default timeout.
+
+    requests has no session-wide timeout option, so the session's
+    ``request`` method is wrapped to inject one into every call; pyiceberg
+    itself does not pass any timeout.
+
+    This reaches into pyiceberg internals (``catalog._session``). If those
+    change, a warning is logged and the timeouts stay unset, falling back
+    to the OS-level timeouts.
+
+    Args:
+        catalog: pyiceberg REST catalog to wrap.
+        connect_timeout (int): Seconds to wait for a TCP connection.
+        read_timeout (int): Seconds to wait for a response.
+
+    Returns:
+        None
+    """
+    session = getattr(catalog, "_session", None)
+    if session is None or not callable(getattr(session, "request", None)):
+        logger.warning("could not set HTTP timeouts on the catalog session")
+        return
+    original_request = session.request
+
+    def request_with_timeout(*args, **kwargs):
+        kwargs.setdefault("timeout", (connect_timeout, read_timeout))
+        return original_request(*args, **kwargs)
+
+    session.request = request_with_timeout
 
 
 def recreate_table(catalog, identifier, schema):
@@ -90,7 +129,37 @@ def recreate_table(catalog, identifier, schema):
     return catalog.create_table(identifier, schema=schema)
 
 
-def append_with_retry(table, arrow_tbl, attempts=4):
+def refresh_with_retry(table, attempts=10):
+    """Refresh ``table``, retrying while the catalog is unreachable.
+
+    A refresh is a read-only request -- repeating it can never duplicate
+    data the way a repeated append can -- so a failure (dropped
+    connection, unreachable catalog) is simply retried with backoff
+    until the catalog answers, instead of giving up and leaving the
+    table state unknown.
+
+    Args:
+        table: pyiceberg table to refresh.
+        attempts (int): Total number of attempts; an exception is
+            raised if all of them fail.
+
+    Returns:
+        None
+    """
+    for i in range(attempts):
+        try:
+            table.refresh()
+            return
+        except Exception as e:
+            if i == attempts - 1:
+                raise
+            # Exponential backoff, wait longer each attempt, capped at 60 s
+            delay = min(60, 2 ** i)
+            logger.warning("table refresh failed (%r), retrying in %ds", e, delay)
+            time.sleep(delay)
+
+
+def append_with_retry(table, arrow_tbl, attempts=10):
     """Append ``arrow_tbl`` to ``table``, retrying failed commits.
 
     A pyiceberg commit is a POST request, which pyiceberg's built-in REST
@@ -98,6 +167,15 @@ def append_with_retry(table, arrow_tbl, attempts=4):
     After each failure the table is refreshed to check
     whether the commit actually landed despite the error -- if it did,
     retrying would append the same rows twice, so the append counts as done.
+
+    The refresh is a catalog request too and fails the same way while the
+    catalog server is unreachable, so it is retried until it succeeds:
+    a refresh is read-only and safe to repeat, while re-appending with
+    the server state unknown is what duplicates rows. (A retry of a
+    commit that had landed is rejected as a conflicting commit, but
+    pyiceberg then refreshes and re-commits it on its own, so the
+    conflict never reaches this loop.) Backoff is exponential, capped at
+    60 s per attempt, so the loops can outlast a catalog server restart.
 
     Args:
         table: pyiceberg table to append to.
@@ -116,13 +194,17 @@ def append_with_retry(table, arrow_tbl, attempts=4):
         except Exception as e:
             if i == attempts - 1:
                 raise
-            logger.warning("append failed (%r), retrying in %ds", e, 2 ** i)
-            # Exponential backoff, wait longer each attempt
-            time.sleep(2 ** i)
-            table.refresh()
-            if len(table.metadata.snapshots) > before:
-                logger.warning("commit had actually landed, not retrying")
-                return
+            # Exponential backoff, wait longer each attempt, capped at 60 s
+            delay = min(60, 2 ** i)
+            logger.warning("append failed (%r), retrying in %ds", e, delay)
+            time.sleep(delay)
+        # Did the commit land despite the error? The refresh is read-only,
+        # so it is repeated until the catalog answers; only then is it
+        # known whether re-appending is safe at all.
+        refresh_with_retry(table)
+        if len(table.metadata.snapshots) > before:
+            logger.warning("commit had actually landed, not retrying")
+            return
 
 
 def count_rows(catalog, identifier):
