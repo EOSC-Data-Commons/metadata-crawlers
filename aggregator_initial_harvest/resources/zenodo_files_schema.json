@@ -1,0 +1,148 @@
+{
+    "$schema": "http://json-schema.org/schema#",
+    "type": "object",
+    "definitions": {
+        "url": {
+            "type": "string"
+        },
+        "fileLinks": {
+            "type": "object",
+            "properties": {
+                "self": {
+                    "$ref": "#/definitions/url"
+                },
+                "content": {
+                    "$ref": "#/definitions/url"
+                },
+                "iiif_canvas": {
+                    "$ref": "#/definitions/url"
+                },
+                "iiif_base": {
+                    "$ref": "#/definitions/url"
+                },
+                "iiif_info": {
+                    "$ref": "#/definitions/url"
+                },
+                "iiif_api": {
+                    "$ref": "#/definitions/url"
+                }
+            },
+            "required": [
+                "content"
+            ],
+            "additionalProperties": false
+        },
+        "fileEntry": {
+            "type": "object",
+            "properties": {
+                "created": {
+                    "type": "string"
+                },
+                "updated": {
+                    "type": "string"
+                },
+                "mimetype": {
+                    "type": "string"
+                },
+                "version_id": {
+                    "type": "string"
+                },
+                "file_id": {
+                    "type": "string"
+                },
+                "bucket_id": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "type": [
+                        "object",
+                        "null"
+                    ],
+                    "additionalProperties": true
+                },
+                "access": {
+                    "type": "object",
+                    "properties": {
+                        "hidden": {
+                            "type": "boolean"
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "links": {
+                    "$ref": "#/definitions/fileLinks"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "size": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "transfer": {
+                    "type": "object",
+                    "properties": {
+                        "type": {
+                            "type": "string"
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "status": {
+                    "type": "string"
+                },
+                "checksum": {
+                    "type": "string",
+                    "pattern": "^(md5|sha256):.+$"
+                },
+                "storage_class": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "created",
+                "updated",
+                "version_id",
+                "file_id",
+                "links",
+                "key",
+                "size",
+                "checksum"
+            ],
+            "additionalProperties": false
+        }
+    },
+    "properties": {
+        "entries": {
+            "type": "array",
+            "items": {
+                "$ref": "#/definitions/fileEntry"
+            }
+        },
+        "enabled": {
+            "type": "boolean"
+        },
+        "default_preview": {
+            "type": [
+                "string",
+                "null"
+            ]
+        },
+        "order": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        },
+        "links": {
+            "type": "object",
+            "additionalProperties": {
+                "type": "string"
+            }
+        }
+    },
+    "required": [
+        "entries"
+    ],
+    "additionalProperties": true
+}
