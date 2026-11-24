@@ -411,8 +411,7 @@ def run_harvester_mdposit(run_info: dict[str, Any]) -> bool:
         if config is None:
             raise ValueError("config is missing")
         harvest_url = config.get("harvest_url")
-        # from_date: str | None = run_info.get("from_date")
-        from_date = "2026-11-01T00:00:00Z"
+        from_date: str | None = run_info.get("from_date")
         headers = {"Accept": "application/json"}
 
         if not from_date:
