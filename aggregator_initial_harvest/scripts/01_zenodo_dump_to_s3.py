@@ -6,12 +6,17 @@
 # Uploading is done in parallel with multiple workers (--workers, default 16) -
 # can take multiple hours locally to process all records!
 
+# The info of the chosen dump (its object from the exporter API) is also uploaded
+# to the bucket as dump_metadata/dump_metadata.json, so the dump version and its
+# creation date can be queried later.
+
 # --bucket Mandatory! S3 bucket to upload the dump to.
 # --local-file defines the filepath of the .tar.gz to download. Start at project root.
 # --cleanup-local-dump can be set to "yes" to delete the downloaded .tar.gz after the script finishes
 
 
 import argparse
+import json
 import logging
 import os
 import tarfile
@@ -36,6 +41,10 @@ logger = logging.getLogger(__name__)
 
 # This file lives in <repo root>/aggregator_initial_harvest/scripts/
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+
+# S3 key where we'll store the exporter-API info of the dump the bucket was 
+# filled from
+DUMP_METADATA_KEY = "dump_metadata/dump_metadata.json"
 
 # Setup secrets, target bucket, local file to download dump, number of workers
 load_dotenv(_REPO_ROOT / ".env", override=True)
@@ -88,6 +97,28 @@ def parse_args() -> argparse.Namespace:
         help="Parallel S3 uploads (default: %(default)s)",
     )
     return parser.parse_args()
+
+
+def upload_dump_metadata(s3_client, bucket, dump_info):
+    """
+    Upload the exporter-API info of the processed dump as JSON to the bucket.
+
+    Stores the whole object the exporter API returned for the chosen dump
+    (creation date, size, checksum, links), so the bucket always records
+    which dump version it was filled from.
+
+    Args:
+        s3_client: boto3 S3 client for the bucket.
+        bucket (str): Destination bucket name.
+        dump_info (dict): Exporter-API object of the chosen dump.
+    """
+    s3_client.put_object(
+        Bucket=bucket,
+        Key=DUMP_METADATA_KEY,
+        Body=json.dumps(dump_info, indent=2),
+        ContentType="application/json",
+    )
+    logger.info("Dump metadata uploaded to s3://%s/%s", bucket, DUMP_METADATA_KEY)
 
 
 def main():
@@ -188,6 +219,11 @@ def main():
         os.remove(LOCAL_FILE)
         raise RuntimeError(f"checksum mismatch: {actual_md5} != {EXPECTED_MD5}")
     logger.info("Download complete and verified.")
+
+    # Store the info of the dump we just verified, before the lengthy record
+    # upload: even if that upload dies partway, the bucket still records
+    # which dump version the records came from.
+    upload_dump_metadata(s3_client, BUCKET, newest)
 
     # Upload to s3 in parallel. Same futures-based pattern as the fill scripts:
     # the main thread reads the (sequential) tar stream and keeps at most

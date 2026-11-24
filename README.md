@@ -205,6 +205,7 @@ uv run python aggregator_initial_harvest/scripts/03_fill_iceberg_records_to_harv
 The scripts will make the following changes:
 * Create <bucket> on S3 if not already present. Fill it with the contents of the latest Zenodo metadata dump 
     ([obtained from their API](https://developers.zenodo.org/#metadata-dumps))
+* Upload the exporter-API info of the chosen dump to <bucket> at `dump_metadata/dump_metadata.json`
 * Create the Iceberg <namespace> if not present
 * Drop the <namespace>.aggregator_records table and fill it with all records in S3
 * Drop the <namespace>.records_to_harvest table and fill it with filtered records (only resource_type 

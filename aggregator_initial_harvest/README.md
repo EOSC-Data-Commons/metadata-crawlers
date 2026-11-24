@@ -17,6 +17,7 @@ It goes through the following steps:
 * creates the `--bucket` bucket if it doesn't already exist on the S3
 * finds the latest JSON metadata dump from Zenodo
 * downloads the dump to local drive
+* uploads the exporter-API info of that dump to the bucket as `dump_metadata/dump_metadata.json`, so the dump's creation date can be queried later
 * uses parallel workers to upload the records from the dump to the specified bucket, with the "zenodo_dump/" prefix
 * if any records raised an error during upload, the `<bucket>_errors.log` file will be created listing the record ID and the specific error raised
 
