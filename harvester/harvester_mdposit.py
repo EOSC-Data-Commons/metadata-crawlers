@@ -68,16 +68,19 @@ def fetch_projects_summary(base_api_url: str, headers: dict[str, str]) -> dict[s
 
 
 
-def fetch_all_projects_data(base_api_url: str, headers: dict[str, str]) -> list[dict[str, Any]]:
+def fetch_projects_data(
+    base_api_url: str,
+    headers: dict[str, str],
+    from_date: str | None = None,
+) -> list[dict[str, Any]]:
     """
-    Retrieve all projects from the MDposit API.
-
-    Projects are fetched in batches using paginated requests until
-    all available records have been collected.
+    Retrieve projects from the MDposit API, optionally only those updated after a date.
 
     Args:
         base_api_url: Base URL of the MDposit API.
         headers: HTTP headers to include in API requests.
+        from_date: Optional ISO-formatted lower bound for project updates.
+            If None, all projects are fetched (full harvest).
 
     Returns:
         List of project dictionaries returned by the API.
@@ -86,85 +89,39 @@ def fetch_all_projects_data(base_api_url: str, headers: dict[str, str]) -> list[
         A one-second delay is applied between requests to avoid
         overwhelming the API.
     """
-    project_summary = fetch_projects_summary(base_api_url, headers)
-    total = project_summary["projectsCount"]
-    print(f"Total projects: {total}")
+    base_params: dict[str, str | int] = {}
+    if from_date is not None:
+        base_params["filter"] = f"updateDate=gt={from_date}"
 
-    projects : list[dict[str, Any]] = []
+    # Initial request just to learn how many projects match
+    response = _MDPOSIT_CLIENT.get(
+        f"{base_api_url}/projects",
+        headers=headers,
+        params={**base_params, "limit": 0, "page": 1},
+        timeout=30,
+    )
+    response.raise_for_status()
+    total = response.json()["filteredCount"]
+    print(f"Total projects to fetch: {total}")
+
+    projects: list[dict[str, Any]] = []
     page = 1
-
     while len(projects) < total:
         response = _MDPOSIT_CLIENT.get(
             f"{base_api_url}/projects",
-            headers = headers,
-            params = {"limit": 100, "page": page},
-            timeout = 30
+            headers=headers,
+            params={**base_params, "limit": 100, "page": page},
+            timeout=30,
         )
         response.raise_for_status()
-        data = response.json()
-        projects.extend(data["projects"])
+        batch = response.json()["projects"]
+        if not batch:
+            break
+        projects.extend(batch)
         print(f"Fetched page {page}, total so far: {len(projects)}")
         page += 1
         time.sleep(1)
 
-    return projects
-
-
-
-def fetch_incremental_projects_data(base_api_url: str, from_date: str, headers: dict[str, str]) -> list[dict[str, Any]]:
-    """
-    Retrieve projects updated after a specified date.
-
-    Performs an incremental harvest by requesting only projects
-    whose update date is greater than the supplied timestamp.
-
-    The method first determines the total number of matching
-        projects and then retrieves them using paginated requests.
-
-    Args:
-        base_api_url: Base URL of the MDposit API.
-        from_date: ISO-formatted date used as the lower bound for project updates.
-        headers: HTTP headers to include in API requests.
-
-    Returns:
-        List of project dictionaries updated after the specified date.
-
-    Notes:
-        A one-second delay is applied between requests to avoid
-        overwhelming the API.
-    """
-    
-    params : dict[str, str | int] = {"limit": 0, "page": 1, "filter": f"updateDate=gt={from_date}"}
-    
-    # inital request just to see how many filtered projects there are
-    response = _MDPOSIT_CLIENT.get(
-        f"{base_api_url}/projects",
-        headers = headers,
-        params = params,
-        timeout = 30
-    )
-
-    response.raise_for_status()
-    data = response.json()
-    number_of_filtered_objects = data["filteredCount"]
-
-    # fetching all filtered projects 
-    projects : list[dict[str, Any]] = []
-    page = 1
-    while len(projects) < number_of_filtered_objects:
-        params_filtered : dict[str, str | int] = {"limit": 100, "page": page, "filter": f"updateDate=gt={from_date}"}
-        response = _MDPOSIT_CLIENT.get(
-            f"{base_api_url}/projects",
-            headers = headers,
-            params = params_filtered,
-            timeout = 30
-        )
-        response.raise_for_status()
-        data = response.json()
-        projects.extend(data["projects"])
-        print(f"Fetched page {page}, total so far: {len(projects)}")
-        page += 1
-        time.sleep(1)
     return projects
 
 
@@ -413,11 +370,7 @@ def run_harvester_mdposit(run_info: dict[str, Any]) -> bool:
         harvest_url = config.get("harvest_url")
         from_date: str | None = run_info.get("from_date")
         headers = {"Accept": "application/json"}
-
-        if not from_date:
-            mdposit_data_projects = fetch_all_projects_data(harvest_url, headers)
-        else:
-            mdposit_data_projects = fetch_incremental_projects_data(harvest_url, from_date, headers)
+        mdposit_data_projects = fetch_projects_data(harvest_url, headers, from_date)
         for project in mdposit_data_projects:
             mdposit_xml, identifier, datestamp = mdposit_data_to_datacite(project)
             filenotes = fetch_project_filenotes(harvest_url, project["accession"], headers)
