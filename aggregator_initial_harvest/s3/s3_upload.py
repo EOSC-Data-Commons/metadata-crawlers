@@ -157,6 +157,41 @@ def md5_of(path):
     return h.hexdigest()
 
 
+def download_verified(url, path, expected_md5, expected_size, headers):
+    """
+    Download a file (resuming after drops) and verify its md5.
+
+    A failed checksum means a corrupt download: the file is removed so
+    the next run starts clean, and a RuntimeError is raised.
+
+    Args:
+        url (str): Address of the file to download.
+        path (str): Local file path to download into.
+        expected_md5 (str): md5 the file must have, from the exporter API.
+        expected_size (int): Expected final size in bytes.
+        headers (dict): Request headers (User-Agent).
+
+    Returns:
+        None
+    """
+    download_resumable(url, path, expected_size, headers)
+    logger.debug("Download finished, computing md5 of %s", path)
+    actual_md5 = md5_of(path)
+
+    # Checksum matches expected?
+    # if corrupt file: remove it so the next run starts clean
+    if actual_md5 != expected_md5:
+        logger.error(
+            "Checksum mismatch: %s != %s. Removing %s",
+            actual_md5,
+            expected_md5,
+            path,
+        )
+        os.remove(path)
+        raise RuntimeError(f"checksum mismatch: {actual_md5} != {expected_md5}")
+    logger.info("Download of %s complete and verified.", path)
+
+
 def upload(
     s3_client: boto3.client,
     bucket: str,
