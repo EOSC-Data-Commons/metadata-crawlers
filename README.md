@@ -199,13 +199,14 @@ For runnning with actual values, the expected bucket is "zenodo-metadata-dump" a
 ```sh
 uv run python aggregator_initial_harvest/scripts/01_zenodo_dump_to_s3.py --bucket zenodo-metadata-dump --cleanup-local-dump yes
 uv run python aggregator_initial_harvest/scripts/02_fill_iceberg_aggregator_records_zenodo.py --bucket zenodo-metadata-dump --namespace harvest-iceberg
-uv run python aggregator_initial_harvest/scripts/03_fill_iceberg_records_to_harvest_zenodo.py --bucket zenodo-metadata-dump> --namespace harvest-iceberg
+uv run python aggregator_initial_harvest/scripts/03_fill_iceberg_records_to_harvest_zenodo.py --bucket zenodo-metadata-dump --namespace harvest-iceberg
 ```
 
 The scripts will make the following changes:
 * Create <bucket> on S3 if not already present. Fill it with the contents of the latest Zenodo metadata dump 
     ([obtained from their API](https://developers.zenodo.org/#metadata-dumps))
 * Upload the exporter-API info of the chosen dump to <bucket> at `dump_metadata/dump_metadata.json`
+* Download the latest Zenodo deleted-records list (`records-deleted.csv.gz`) and delete those records' objects (`zenodo_dump/<record_id>.json`) from <bucket> so no records marked for deletion persist
 * Create the Iceberg <namespace> if not present
 * Drop the <namespace>.aggregator_records table and fill it with all records in S3
 * Drop the <namespace>.records_to_harvest table and fill it with filtered records (only resource_type 

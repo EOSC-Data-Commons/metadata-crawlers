@@ -19,6 +19,7 @@ It goes through the following steps:
 * downloads the dump to local drive
 * uploads the exporter-API info of that dump to the bucket as `dump_metadata/dump_metadata.json`, so the dump's creation date can be queried later
 * uses parallel workers to upload the records from the dump to the specified bucket, with the "zenodo_dump/" prefix
+* downloads the latest `records-deleted.csv.gz` from the exporter API and deletes the bucket objects of every record it lists (`zenodo_dump/<record_id>.json`), so records removed by Zenodo don't linger in the bucket. Deleting a key that isn't in the bucket is a no-op, so the perfomance impact shouldn't be large
 * if any records raised an error during upload, the `<bucket>_errors.log` file will be created listing the record ID and the specific error raised
 
 Note: Downloading the .tar.gz dump requires about 13GB of space and might take minutes. Uploading the millions of records may take **hours**!
