@@ -10,12 +10,26 @@
 # to the bucket as dump_metadata/dump_metadata.json, so the dump version and its
 # creation date can be queried later.
 
+# After the records are uploaded, the latest records-deleted.csv.gz is downloaded
+# and every record_id it lists is deleted from the bucket, so records Zenodo
+# removed don't linger in the bucket. Since we can't easily wipe the bucket and start
+# from stratch, we use this list of all records that were ever deleted from Zenodo to
+# make sure no invalid files remain in the bucket
+#
+# Note: the number logged for the deletion step is the number of record IDs whose
+# deletion requests succeeded, NOT the number of objects that actually existed in the
+# bucket and were removed -- S3 does not report whether a deleted key existed.
+
 # --bucket Mandatory! S3 bucket to upload the dump to.
 # --local-file defines the filepath of the .tar.gz to download. Start at project root.
-# --cleanup-local-dump can be set to "yes" to delete the downloaded .tar.gz after the script finishes
+# --deleted-file defines the filepath of the records-deleted.csv.gz to download.
+# --cleanup-local-dump can be set to "yes" to delete the downloaded dump .tar.gz and
+# records-deleted.csv.gz after the script finishes
 
 
 import argparse
+import csv
+import gzip
 import json
 import logging
 import os
@@ -32,8 +46,7 @@ from dotenv import load_dotenv
 from aggregator_initial_harvest.s3.s3_upload import (
     UploadStats,
     connect_to_s3,
-    download_resumable,
-    md5_of,
+    download_verified,
     upload,
 )
 
@@ -85,6 +98,11 @@ def parse_args() -> argparse.Namespace:
         help="file path where the downloaded dump will be stored",
     )
     parser.add_argument(
+        "--deleted-file",
+        default="records-deleted.csv.gz",
+        help="file path where the downloaded deleted-records CSV will be stored",
+    )
+    parser.add_argument(
         "--cleanup-local-dump",
         choices=["yes", "no"],
         default="no",
@@ -121,16 +139,151 @@ def upload_dump_metadata(s3_client, bucket, dump_info):
     logger.info("Dump metadata uploaded to s3://%s/%s", bucket, DUMP_METADATA_KEY)
 
 
+def newest_exporter_version(exporter, filename):
+    """
+    Newest version entry of an exporter file, by creation date.
+
+    The exporter API lists every published version of each dump file;
+    the newest one is the current head.
+
+    Args:
+        exporter (dict): Parsed JSON of the exporter API response.
+        filename (str): Exporter file whose versions to pick from,
+            e.g. "records-json.tar.gz".
+
+    Returns:
+        dict: The version object of the newest version.
+    """
+    return max(exporter[filename], key=lambda v: datetime.fromisoformat(v["created"]))
+
+
+def iter_deleted_record_ids(path):
+    """
+    Yield the record_id of every row of the records-deleted CSV.
+
+    The CSV is decompressed and parsed row by row, so a list with
+    millions of deletions never sits fully in memory. 
+    
+    IF the record_id column is missing (the csv format changed) 
+    raises an exception instead of silently deleting nothing.
+
+    Args:
+        path (str): Local path of the downloaded records-deleted.csv.gz.
+
+    Yields:
+        str: record_id of one deleted record.
+    """
+    with gzip.open(path, "rt", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        if not reader.fieldnames or "record_id" not in reader.fieldnames:
+            raise RuntimeError(
+                f"no record_id column in {path} (columns: {reader.fieldnames})"
+            )
+        for row in reader:
+            record_id = (row.get("record_id") or "").strip()
+            if record_id:
+                yield record_id
+
+
+def delete_deleted_records(s3_client, bucket, prefix, csv_path, workers, batch=1000):
+    """
+    Delete the bucket objects of all records in the records-deleted CSV.
+
+    For every record_id in the CSV, "<prefix><record_id>.json" is deleted
+    from the bucket. Deletes are sent as parallel batch requests of
+    ``batch`` keys (1000 is the S3 maximum per request). 
+    
+    S3 deleting a key that does not exist is a no-op -- so
+    record IDs that were never uploaded are simply skipped, providing
+    "delete it if it exists" behavior.
+
+    A failed request is logged and counted, and the run continues with
+    the remaining batches.
+
+    NOTE: the success count is the number of deletion requests that
+    succeeded, not the number of objects that actually existed in the
+    bucket and were removed. S3 does not report whether a deleted key
+    existed, so record IDs that were never uploaded are included in
+    the count; only the failure count is exact.
+
+    Args:
+        s3_client: boto3 S3 client for the bucket.
+        bucket (str): Bucket to delete the records from.
+        prefix (str): Key prefix the record objects live under,
+            e.g. "zenodo_dump/".
+        csv_path (str): Local path of the records-deleted.csv.gz.
+        workers (int): Number of parallel delete requests.
+        batch (int): Keys per delete request, capped at 1000.
+
+    Returns:
+        tuple[int, int]: Keys covered by successful delete requests and
+        keys that failed to delete. The first number is NOT the count
+        of objects that were actually present and removed -- see the
+        note above.
+    """
+    batch = min(batch, 1000)
+
+    def delete_batch(keys):
+        try:
+            resp = s3_client.delete_objects(
+                Bucket=bucket,
+                Delete={"Objects": [{"Key": k} for k in keys], "Quiet": True},
+            )
+            errors = resp.get("Errors") or []
+            for e in errors:
+                logger.warning(
+                    "failed to delete %s: %s", e.get("Key"), e.get("Message")
+                )
+            return len(keys) - len(errors), len(errors)
+        except Exception:
+            logger.exception("delete request for %d keys failed", len(keys))
+            return 0, len(keys)
+
+    succeeded = failed = 0
+    requested = 0
+    keys = []
+    # Same futures pattern as the upload: the main thread reads the CSV
+    # and keeps at most 2 * workers delete requests in flight, so memory
+    # stays bounded no matter how long the deletion list is.
+    lookahead = 2 * workers
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        fifo_queue = deque()
+        for record_id in iter_deleted_record_ids(csv_path):
+            keys.append(f"{prefix}{record_id}.json")
+            requested += 1
+            if requested % 100_000 == 0:
+                logger.info(
+                    "Deletion progress: %s keys requested", f"{requested:,}"
+                )
+            if len(keys) >= batch:
+                fifo_queue.append(ex.submit(delete_batch, keys))
+                keys = []
+                if len(fifo_queue) >= lookahead:
+                    # Wait for the oldest request so memory stays bounded
+                    d, f = fifo_queue.popleft().result()
+                    succeeded += d
+                    failed += f
+        if keys:
+            fifo_queue.append(ex.submit(delete_batch, keys))
+        # Wait for the requests still in flight
+        while fifo_queue:
+            d, f = fifo_queue.popleft().result()
+            succeeded += d
+            failed += f
+    return succeeded, failed
+
+
 def main():
-    """Download the newest Zenodo dump and upload it to S3."""
+    """Download the newest Zenodo dump, upload it to S3, then delete the Zenodo-deleted records from the bucket."""
     setup_logging()
     args = parse_args()
 
     logger.info("Start of script %s.", __file__)
     logger.debug(
-        "Arguments: bucket=%s, local_file=%s, cleanup_local_dump=%s",
+        "Arguments: bucket=%s, local_file=%s, deleted_file=%s, cleanup_local_dump=%s",
         args.bucket,
         args.local_file,
+        args.deleted_file,
         args.cleanup_local_dump,
     )
 
@@ -139,6 +292,9 @@ def main():
 
     # We'll first download the file locally, then stream it to S3. Otherwise direct streaming fails
     LOCAL_FILE = args.local_file
+
+    # The deleted-records CSV is also downloaded locally before parsing
+    DELETED_LOCAL_FILE = args.deleted_file
 
     # Stream to s3 in parallel
     WORKERS = args.workers
@@ -175,21 +331,29 @@ def main():
 
     # Zenodo dump ---
     # Download the latest version of the JSON metadata dump
+    # and of the deleted-records list
 
     resp = requests.get("https://zenodo.org/api/exporter", timeout=30, headers=HEADERS)
     resp.raise_for_status()
 
-    # The JSON version of full metadata dump
-    versions = resp.json()["records-json.tar.gz"]
+    # Every dump file the exporter offers, with all of its versions
+    exporter = resp.json()
 
-    newest = max(versions, key=lambda v: datetime.fromisoformat(v["created"]))
+    newest_dump = newest_exporter_version(exporter, "records-json.tar.gz")
+    newest_deleted = newest_exporter_version(exporter, "records-deleted.csv.gz")
 
-    zenodo_metadata_url = newest["links"]["self"]  # URL to download the dump
-    zenodo_metadata_date = newest["created"]
+    zenodo_metadata_url = newest_dump["links"]["self"]  # URL to download the dump
+    zenodo_metadata_date = newest_dump["created"]
 
     # Expected hash for validation, as well as expectedfilesize
-    EXPECTED_MD5 = newest["checksum"].removeprefix("md5:")
-    EXPECTED_SIZE = int(newest["size"])
+    EXPECTED_MD5 = newest_dump["checksum"].removeprefix("md5:")
+    EXPECTED_SIZE = int(newest_dump["size"])
+
+    # The deleted-records CSV: URL, creation date, checksum and size
+    deleted_url = newest_deleted["links"]["self"]
+    deleted_date = newest_deleted["created"]
+    EXPECTED_DELETED_MD5 = newest_deleted["checksum"].removeprefix("md5:")
+    EXPECTED_DELETED_SIZE = int(newest_deleted["size"])
 
     logger.info(
         "Latest metadata dump: %s (created %s)",
@@ -199,31 +363,28 @@ def main():
     logger.debug(
         "Expected size: %d bytes, expected md5: %s", EXPECTED_SIZE, EXPECTED_MD5
     )
+    logger.info(
+        "Latest deleted-records list: %s (created %s)",
+        deleted_url,
+        deleted_date,
+    )
+    logger.debug(
+        "Expected size: %d bytes, expected md5: %s",
+        EXPECTED_DELETED_SIZE,
+        EXPECTED_DELETED_MD5,
+    )
 
     # Download file locally
     # Lengthy!
     logger.info("Downloading dump to %s", LOCAL_FILE)
-    download_resumable(zenodo_metadata_url, LOCAL_FILE, EXPECTED_SIZE, HEADERS)
-    logger.debug("Download finished, computing md5 of %s", LOCAL_FILE)
-    actual_md5 = md5_of(LOCAL_FILE)
-
-    # Checksum matches expected?
-    # if corrupt file: remove it so the next run starts clean
-    if actual_md5 != EXPECTED_MD5:
-        logger.error(
-            "Checksum mismatch: %s != %s. Removing %s",
-            actual_md5,
-            EXPECTED_MD5,
-            LOCAL_FILE,
-        )
-        os.remove(LOCAL_FILE)
-        raise RuntimeError(f"checksum mismatch: {actual_md5} != {EXPECTED_MD5}")
-    logger.info("Download complete and verified.")
+    download_verified(
+        zenodo_metadata_url, LOCAL_FILE, EXPECTED_MD5, EXPECTED_SIZE, HEADERS
+    )
 
     # Store the info of the dump we just verified, before the lengthy record
     # upload: even if that upload dies partway, the bucket still records
     # which dump version the records came from.
-    upload_dump_metadata(s3_client, BUCKET, newest)
+    upload_dump_metadata(s3_client, BUCKET, newest_dump)
 
     # Upload to s3 in parallel. Same futures-based pattern as the fill scripts:
     # the main thread reads the (sequential) tar stream and keeps at most
@@ -257,10 +418,39 @@ def main():
 
     logger.info("Done: %d uploaded, %d failed", stats.uploaded, stats.failed)
 
+    # Deleted records ---
+    # Remove the objects of records Zenodo deleted, so the bucket ends up
+    # holding the dump minus those records. 
+    # Since we re-use an existing bucket, a record being in an old dump would
+    # persist even though the new dump does not include it.
+    logger.info("Downloading deleted-records list to %s", DELETED_LOCAL_FILE)
+    download_verified(
+        deleted_url,
+        DELETED_LOCAL_FILE,
+        EXPECTED_DELETED_MD5,
+        EXPECTED_DELETED_SIZE,
+        HEADERS,
+    )
+    delete_succeeded, delete_failed = delete_deleted_records(
+        s3_client, BUCKET, PREFIX, DELETED_LOCAL_FILE, WORKERS
+    )
+    logger.info(
+        "Deletion done: deletion requests succeeded for %s keys, %s failed",
+        f"{delete_succeeded:,}",
+        f"{delete_failed:,}",
+    )
+    if delete_failed:
+        logger.warning(
+            "%s keys could not be deleted; deletions are idempotent, so "
+            "re-running the script retries them",
+            f"{delete_failed:,}",
+        )
+
     # Optionally: if indicated, delete the local dump file to free up space
     if args.cleanup_local_dump == "yes":
         os.remove(LOCAL_FILE)
-        logger.info("Deleted %s.", LOCAL_FILE)
+        os.remove(DELETED_LOCAL_FILE)
+        logger.info("Deleted %s and %s.", LOCAL_FILE, DELETED_LOCAL_FILE)
 
     logger.info("Script %s complete.", __file__)
 
