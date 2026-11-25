@@ -114,6 +114,10 @@ def download_resumable(
         if have >= total:
             return
         req_headers = dict(headers)
+        # Never accept transport-level compression: the file must be saved
+        # byte-identical (md5 check, resume ranges) -- a Content-Encoding:
+        # gzip response would silently corrupt both.
+        req_headers["Accept-Encoding"] = "identity"
         if have:
             req_headers["Range"] = f"bytes={have}-"
         try:
