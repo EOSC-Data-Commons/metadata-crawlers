@@ -2,6 +2,7 @@ import httpx
 import logging
 from typing import Optional, Any
 from harvester.settings import current_settings
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -9,11 +10,45 @@ logger = logging.getLogger(__name__)
 _WAREHOUSE_CLIENT: Optional[httpx.Client] = None
 
 
-def _client() -> httpx.Client:
-    """Return the shared warehouse HTTP client, creating it if needed."""
+RETRY_STATUSES = {429, 500, 502, 503, 504}
+
+
+class _RetryTransport(httpx.HTTPTransport):
+    """HTTPTransport that also retries timeouts, network errors and retryable status codes."""
+
+    def __init__(self, max_retries: int, backoff: float = 0.5):
+        super().__init__(retries = 2)  # built-in connect retries
+        self._max_retries = max_retries
+        self._backoff = backoff
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        for attempt in range(self._max_retries + 1):
+            last = attempt == self._max_retries
+            try:
+                response = super().handle_request(request)
+            except (httpx.TimeoutException, httpx.NetworkError):
+                if last:
+                    raise
+            else:
+                if last or response.status_code not in RETRY_STATUSES:
+                    return response
+                response.close()
+            delay = min(60, self._backoff * 2 ** attempt)
+            logger.warning("%s %s: retry %d/%d in %.1fs", request.method, request.url,
+                           attempt + 1, self._max_retries, delay)
+            time.sleep(delay)
+        raise RuntimeError("unreachable")
+
+
+def get_client() -> httpx.Client:  # renamed from _client, since other modules now import it
+    """Return the shared HTTP client, creating it if needed."""
     global _WAREHOUSE_CLIENT
     if _WAREHOUSE_CLIENT is None:
-        _WAREHOUSE_CLIENT = httpx.Client(timeout=current_settings().WAREHOUSE_API_TIMEOUT)
+        s = current_settings()
+        _WAREHOUSE_CLIENT = httpx.Client(
+            transport = _RetryTransport(s.WAREHOUSE_API_RETRIES),
+            timeout = s.WAREHOUSE_API_TIMEOUT
+        )
     return _WAREHOUSE_CLIENT
 
 
@@ -31,7 +66,7 @@ def start_harvest_run(harvest_url: str) -> Optional[dict[str, Any]]:
     """
     payload = {"harvest_url": harvest_url}
     try:
-        response = _client().post(_warehouse_url("harvest_run"), json=payload)
+        response = get_client().post(_warehouse_url("harvest_run"), json=payload)
         response.raise_for_status()
         run_info: dict[str, Any] = response.json()
         logger.info("Started harvest run id=%s.", run_info.get("id"))
@@ -49,7 +84,7 @@ def get_open_run_id(harvest_url: str) -> Optional[str]:
     """
     params = {"harvest_url": harvest_url}
     try:
-        response = _client().get(_warehouse_url("harvest_run"), params=params)
+        response = get_client().get(_warehouse_url("harvest_run"), params=params)
         response.raise_for_status()
 
         response_json: dict[str, Any] = response.json()
@@ -83,7 +118,7 @@ def close_harvest_run(payload: dict[str, Any]) -> None:
     """
     run_id = payload.get("id")
     try:
-        response = _client().put(_warehouse_url("harvest_run"), json=payload)
+        response = get_client().put(_warehouse_url("harvest_run"), json=payload)
         response.raise_for_status()
         logger.info(
             "Closed harvest run %s — started %s, finished %s",
@@ -103,7 +138,7 @@ def send_harvest_event(event_payload: dict[str, Any]) -> bool:
     :return logical: True if the payload has been sent to API successfully
     """
     try:
-        response = _client().post(_warehouse_url("harvest_event"), json=event_payload)
+        response = get_client().post(_warehouse_url("harvest_event"), json=event_payload)
         response.raise_for_status()
         return True
     except httpx.HTTPStatusError as e:

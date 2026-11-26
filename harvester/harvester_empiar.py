@@ -1,11 +1,7 @@
-import logging, os, httpx, xml.etree.ElementTree as ET, time, json
-from .db_api_functions import send_harvest_event
+import logging, os, xml.etree.ElementTree as ET, time, json
+from .db_api_functions import send_harvest_event, get_client
 from xml.dom import minidom
 from typing import Any, Iterator, cast
-
-_EMPIAR_CLIENT = httpx.Client(
-    timeout = httpx.Timeout(120),
-)
 
 logger = logging.getLogger(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -31,7 +27,7 @@ def search_page(page: int, query: str) -> dict[str, Any]:
     """
     url = DEFAULT_BASE_URL + SEARCH_PATH.format(query = query)
     params: dict[str, Any] = {"rows": PAGE_SIZE, "page": page, "fl": "*"}
-    response = _EMPIAR_CLIENT.get(url, params = params)
+    response = get_client().get(url, params = params)
     response.raise_for_status()
     return cast(dict[str, Any], response.json())
 
@@ -107,7 +103,7 @@ def empiar_additional_file_metadata(entry_id:  str) -> list[dict[str, Any]]:
     :return: the list of imagesets dictionaries as returned by the EMPIAR API
     """
     empiar_entry_endpoint = f"https://www.ebi.ac.uk/empiar/api/entry/EMPIAR-{entry_id}/"
-    response = _EMPIAR_CLIENT.get(empiar_entry_endpoint)
+    response = get_client().get(empiar_entry_endpoint)
     response.raise_for_status()
     payload = response.json()
     return cast(list[dict[str, Any]], payload[f"EMPIAR-{entry_id}"]["imagesets"])
@@ -124,7 +120,7 @@ def add_file_sizes(empiar_id: str, additional_file_metadata: list[dict[str, Any]
     empiar_entry_endpoint = f"https://www.ebi.ac.uk/empiar/{empiar_id}/dirStruct%3Dfull&list%3D1/"
     for index, metadata in enumerate(additional_file_metadata):
         try:
-            response = _EMPIAR_CLIENT.get(f"{empiar_entry_endpoint}{index}/")
+            response = get_client().get(f"{empiar_entry_endpoint}{index}/")
             response.raise_for_status()
             payload = response.json()
             metadata["byte_size"] = payload[0]["size"]
@@ -182,7 +178,7 @@ def extract_keywords_from_emdb_references(record: dict[str, Any]) -> set[str]:
 
     for emdb_id in filter(None, emdb_ids):
         try:
-            data = _EMPIAR_CLIENT.get(f"https://www.ebi.ac.uk/emdb/api/entry/{emdb_id}", timeout = 10).json()
+            data = get_client().get(f"https://www.ebi.ac.uk/emdb/api/entry/{emdb_id}", timeout = 10).json()
         except Exception:
             continue
 
