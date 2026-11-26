@@ -2,13 +2,12 @@ import argparse
 import logging
 from datetime import datetime, timezone
 
-from .additional_metadata_functions import close_metadata_client
 from .harvester_oaipmh import run_harvester_oaipmh
 from harvester.harvester_finbif import run_harvester_finbif
 from harvester.harvester_mdposit import run_harvester_mdposit
 from harvester.harvester_empiar import run_harvester_empiar
 from harvester.harvester_nfdi4earth import run_harvester_nfdi4earth
-from .db_api_functions import start_harvest_run, close_harvest_run, get_open_run_id, close_warehouse_client
+from .db_api_functions import start_harvest_run, close_harvest_run, get_open_run_id, close_client
 from .logging import setup_logging
 from .settings import HarvesterSettings, set_settings
 
@@ -102,8 +101,7 @@ def run_harvest(
                 "completed_at": end_time,
             }
             close_harvest_run(close_harvest_run_payload)
-        close_metadata_client()
-        close_warehouse_client()
+        close_client()
 
     return harvest_success
 

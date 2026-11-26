@@ -19,7 +19,6 @@ class HarvesterSettings(BaseSettings):
     LOG_DIR: str = "./logs"
     LOG_LEVEL: str = "INFO"
     WAREHOUSE_API_TIMEOUT: int = 30
-    WAREHOUSE_API_RETRIES: int = 5
 
     USER_AGENT_ADDRESS: str | None = ""
 

@@ -1,58 +1,20 @@
 import httpx
 import json
 import logging
-import os
 from typing import Any, Optional
-from oaipmh_scythe import Scythe
+from oaipmh_scythe import Scythe, HTTPConfig
 from lxml import etree as ET
-from httpx_retries import Retry, RetryTransport
+from harvester.db_api_functions import get_client
 from harvester.settings import current_settings
-
-# Status codes worth retrying on: rate limiting + transient server errors
-RETRYABLE_STATUS_CODES = {422, 429, 500, 502, 503, 504}
- 
-retry_strategy = Retry(
-    total = 8,
-    backoff_factor = 0.5,
-    status_forcelist = RETRYABLE_STATUS_CODES,
-    allowed_methods = {"GET"},
-)
-
-_METADATA_CLIENT: Optional[httpx.Client] = None
 
 logger = logging.getLogger(__name__)
 
 user_agent_address = (current_settings().USER_AGENT_ADDRESS or "").strip()
 
-def _metadata_client() -> httpx.Client:
-    """Return the shared Metadata HTTP client, creating it if needed."""
-    global _METADATA_CLIENT
-    if _METADATA_CLIENT is None:
-        if user_agent_address:
-            _METADATA_CLIENT = httpx.Client(
-                transport = RetryTransport(retry = retry_strategy),
-                timeout = 30,
-                headers = {"User-Agent": f"metadata-crawlers/1 {user_agent_address}"},
-            )
-        else:
-            _METADATA_CLIENT = httpx.Client(
-                transport = RetryTransport(retry = retry_strategy),
-                timeout = 30,
-            )
-    return _METADATA_CLIENT
-
-
-def close_metadata_client() -> None:
-    global _METADATA_CLIENT
-    if _METADATA_CLIENT is None:
-        return
-    try:
-        _METADATA_CLIENT.close()
-    except Exception:
-        logger.warning("Failed to close Dataverse client")
-    finally:
-        _METADATA_CLIENT = None
-
+if user_agent_address:
+    http_config = HTTPConfig(timeout = 180, user_agent = f"metadata-crawlers/1 {user_agent_address}")
+else:
+    http_config = HTTPConfig(timeout = 180)
 
 def fetch_dataverse_json(doi: str, base_url: str, exporter: str | None) -> Optional[str]:
     """
@@ -65,7 +27,7 @@ def fetch_dataverse_json(doi: str, base_url: str, exporter: str | None) -> Optio
     """
     params = {"exporter": exporter, "persistentId": doi}
     try:
-        response = _metadata_client().get(base_url, params=params)
+        response = get_client().get(base_url, params=params)
         response.raise_for_status()
         return json.dumps(response.json(), indent = 2)
     except httpx.HTTPStatusError as e:
@@ -107,7 +69,7 @@ def fetch_additional_metadata_hal(record_id: str, base_url: str) -> Optional[str
     }
 
     try:
-        response = _metadata_client().get(base_url, params=params)
+        response = get_client().get(base_url, params=params)
         response.raise_for_status()
         data = response.json()
         if not data.get("response", {}).get("docs"):
@@ -142,7 +104,7 @@ def fetch_additional_oai(record_id: str, base_url: str, metadata_prefix: str) ->
     :return: stringified XML with additional metadata; returns None on error
     """
     try:
-        with Scythe(base_url) as client:
+        with Scythe(base_url, http_config = http_config, max_retries = 3, default_retry_after = 60) as client:
             record = client.get_record(identifier = record_id, metadata_prefix = metadata_prefix)
             return ET.tostring(record.xml, pretty_print=True, encoding="unicode")
     except Exception as e:
@@ -170,7 +132,7 @@ def fetch_additional_metadata_zenodo(record_id: str, base_url: str) -> Optional[
     url = f"{base_url}/{record_id}/files"
 
     try:
-        response = _metadata_client().get(url)
+        response = get_client().get(url)
         response.raise_for_status()
         return json.dumps(response.json(), indent = 2)
 
@@ -215,7 +177,7 @@ def fetch_additional_metadata_dasch(record_id: str, base_url: str) -> Optional[s
     url = f"{base_url}{short_code}/{file_id}/file"
 
     try:
-        response = _metadata_client().get(url)
+        response = get_client().get(url)
         response.raise_for_status()
         return json.dumps(response.json(), indent=2)
     except httpx.HTTPStatusError as e:
@@ -272,7 +234,7 @@ def fetch_additional_metadata_cern(record_id: str, base_url: str) -> Optional[st
     url = f"{base_url.rstrip('/')}/{cern_id}"
 
     try:
-        response = _metadata_client().get(url, timeout = 60)
+        response = get_client().get(url, timeout = 60)
         response.raise_for_status()
         data = response.json()
         metadata = data.get("metadata") if isinstance(data, dict) else None
