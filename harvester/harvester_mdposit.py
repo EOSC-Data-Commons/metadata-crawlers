@@ -1,15 +1,11 @@
-import logging, os, httpx, xml.etree.ElementTree as ET, time, mimetypes, json
-from datetime import datetime
-from .db_api_functions import send_harvest_event
+import logging, os, xml.etree.ElementTree as ET, time, mimetypes, json
+from .db_api_functions import send_harvest_event, get_client
 from xml.dom import minidom
 from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-_MDPOSIT_CLIENT = httpx.Client(
-    timeout=httpx.Timeout(120),
-)
 
 def guess_format(filename: str) -> str:
     """
@@ -61,7 +57,7 @@ def fetch_projects_summary(base_api_url: str, headers: dict[str, str]) -> dict[s
         the API.
     """
     url = f"{base_api_url}/projects/summary"
-    response = _MDPOSIT_CLIENT.get(url, headers = headers, timeout = 30)
+    response = get_client().get(url, headers = headers, timeout = 30)
     response.raise_for_status()
     summary = response.json() 
     return cast(dict[str, Any], summary)
@@ -94,11 +90,11 @@ def fetch_projects_data(
         base_params["filter"] = f"updateDate=gt={from_date}"
 
     # Initial request just to learn how many projects match
-    response = _MDPOSIT_CLIENT.get(
+    response = get_client().get(
         f"{base_api_url}/projects",
-        headers=headers,
-        params={**base_params, "limit": 0, "page": 1},
-        timeout=30,
+        headers = headers,
+        params = {**base_params, "limit": 0, "page": 1},
+        timeout = 30,
     )
     response.raise_for_status()
     total = response.json()["filteredCount"]
@@ -107,11 +103,11 @@ def fetch_projects_data(
     projects: list[dict[str, Any]] = []
     page = 1
     while len(projects) < total:
-        response = _MDPOSIT_CLIENT.get(
+        response = get_client().get(
             f"{base_api_url}/projects",
-            headers=headers,
-            params={**base_params, "limit": 100, "page": page},
-            timeout=30,
+            headers = headers,
+            params = {**base_params, "limit": 100, "page": page},
+            timeout = 30,
         )
         response.raise_for_status()
         batch = response.json()["projects"]
@@ -326,7 +322,7 @@ def fetch_project_filenotes(base_api_url: str, accession: str, headers: dict[str
     Returns:
         List of file-note dictionaries exactly as returned by the API.
     """
-    response = _MDPOSIT_CLIENT.get(
+    response = get_client().get(
         f"{base_api_url}/projects/{accession}/filenotes",
         headers = headers,
         timeout = 30,
@@ -359,7 +355,6 @@ def run_harvester_mdposit(run_info: dict[str, Any]) -> bool:
         and result in a False return value.
     """
 
-    record_count = 0
     harvest_events = 0
     failed_events = 0
     try:
@@ -394,8 +389,7 @@ def run_harvester_mdposit(run_info: dict[str, Any]) -> bool:
                 failed_events += 1
 
         logger.info(
-            "Harvest summary: processed %s records, successfully sent %s of them to the warehouse, failed to send %s records.",
-            record_count,
+            "Harvest summary: successfully sent %s of them to the warehouse, failed to send %s records.",
             harvest_events,
             failed_events
         )
@@ -406,10 +400,9 @@ def run_harvester_mdposit(run_info: dict[str, Any]) -> bool:
             return False
             
     except Exception as e:
-        logger.exception("Unexpected error in run_harvester_oaipmh: %s", e)
+        logger.exception("Unexpected error in harvester_mdposit: %s", e)
         logger.info(
-            "Harvest summary: processed %s records, successfully sent %s of them to the warehouse, failed to send %s records.",
-            record_count,
+            "Harvest summary: successfully sent %s of them to the warehouse, failed to send %s records.",
             harvest_events,
             failed_events
         )
